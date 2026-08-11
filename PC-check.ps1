@@ -18,7 +18,15 @@
 # --- Self-elevate if not already admin ---
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+  if ($PSCommandPath) {
+    # If run as a .ps1 file, elevate the file
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+  }
+  else {
+    # If run via a one-liner (iex), tell them to restart their console as Admin
+    Write-Host "Administrator privileges required. Please right-click PowerShell, select 'Run as Administrator', and paste the command again." -ForegroundColor Red
+    Start-Sleep -Seconds 5
+  }
   exit
 }
 
