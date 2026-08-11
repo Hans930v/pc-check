@@ -13,7 +13,7 @@ A portable, single-file diagnostic tool for evaluating a Windows PC or laptop be
 
 Buying a used laptop or desktop means trusting the seller's word on battery health, storage condition, and whether anything is quietly failing. This tool pulls that information directly from Windows in a couple of minutes, so either party can run it and share one report — no guesswork required.
 
-It's **read-only**: it doesn't change settings, install anything, or modify the system in any way. It only reads diagnostic data.
+It's **read-only**: it doesn't change settings, install anything, or modify the system in any way. Under the hood, it simply runs standard, built-in Windows PowerShell and diagnostic commands ( like `Get-CimInstance`, `systeminfo`, and `powercfg`). The script just gathers that raw data and formats it into a clean, easy-to-read HTML report.
 
 ## What it checks
 
