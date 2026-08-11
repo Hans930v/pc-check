@@ -1,2 +1,2 @@
 # pc-check
-Portable diagnostic script for evaluating used Desktop and/or Laptops before buying
+Portable diagnostic script for evaluating used Desktops and/or Laptops before buying
