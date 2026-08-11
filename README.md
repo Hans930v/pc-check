@@ -31,8 +31,8 @@ The report also includes a short manual checklist for things no script can check
 
 ## How to run it
 
-1. Download `pc-check.ps1` (e.g., onto a USB drive).
-2. **Right-click** `pc-check.ps1` and select **Run with PowerShell**.
+1. Download `PC-check.ps1` (e.g., onto a USB drive).
+2. **Right-click** `PC-check.ps1` and select **Run with PowerShell**.
 3. Accept the UAC prompt (admin rights are needed for full storage and event log data — without it, some sections will show as unavailable rather than failing).
 4. Wait ~30–60 seconds for the data collection to finish. Press **Enter** when prompted, and the report will open automatically in your web browser. It is also saved to your Desktop as `pc-check-[timestamp].html`.
 
