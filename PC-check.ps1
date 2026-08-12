@@ -11,8 +11,7 @@
     License        : MIT License
     GitHub         : https://github.com/Hans930v/pc-check
     
-    Transparency   : This script was collaboratively "vibe coded" with the assistance of AI. 
-                     No need to be an expert to build cool tools!
+    Transparency   : This script was collaboratively "vibe coded" with the assistance of AI.
 #>
 
 # --- Self-elevate if not already admin ---
