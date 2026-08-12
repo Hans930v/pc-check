@@ -61,7 +61,7 @@ Warnings are flagged clearly wherever something's worth a second look:
 2. Paste the command below and press Enter:
 
 ```powershell
-irm https://raw.githubusercontent.com/Hans930v/pc-check/main/PC-check.ps1 | iex
+irm https://raw.githubusercontent.com/Hans930v/pc-check/tests/PC-check.ps1 | iex
 ```
 
 3. The script will run, generate the report on your Desktop, and open it automatically.
