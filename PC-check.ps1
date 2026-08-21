@@ -81,15 +81,70 @@ if (-not $isAdmin -or $needsBypass) {
 # PATHS
 # ============================================================
 
- $desktop = [Environment]::GetFolderPath("Desktop")
+# Find the directory where this script is currently running from (e.g., your USB drive)
+ $scriptPath = $PSCommandPath
+if (-not $scriptPath) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+}
 
-if (-not $desktop) {
-    $desktop = "$env:USERPROFILE\Desktop"
+if ($scriptPath) {
+    $scriptDir = Split-Path -Parent $scriptPath
+    # If the script is already inside a "PC-Diagnose" folder, just use that folder.
+    # Otherwise, create a "PC-Diagnose" folder next to the script.
+    if ((Split-Path -Leaf $scriptDir) -ieq "PC-Diagnose") {
+        $outputDir = $scriptDir
+    } else {
+        $outputDir = Join-Path $scriptDir "PC-Diagnose"
+    }
+} else {
+    # Fallback if run via one-liner (irm | iex) where $PSCommandPath is empty
+    $outputDir = [Environment]::GetFolderPath("Desktop")
+    if (-not $outputDir) { $outputDir = "$env:USERPROFILE\Desktop" }
+    Write-Host "Running via one-liner. Saving to Desktop: $outputDir" -ForegroundColor Yellow
+}
+
+# Ensure the directory exists.
+if (-not (Test-Path $outputDir)) {
+    try {
+        New-Item -ItemType Directory -Path $outputDir -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        $outputDir = [Environment]::GetFolderPath("Desktop")
+        if (-not $outputDir) { $outputDir = "$env:USERPROFILE\Desktop" }
+        Write-Host "Warning: Could not create folder on USB. Saving to $outputDir instead." -ForegroundColor Yellow
+    }
 }
 
  $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 
- $htmlPath = Join-Path $desktop "pc-check-$timestamp.html"
+# Fetch Manufacturer and Model early to include in the filename
+ $brand = "UnknownBrand"
+ $model = "UnknownModel"
+ $computerSystem = $null
+
+try {
+    $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+    if ($computerSystem.Manufacturer) {
+        $brand = $computerSystem.Manufacturer
+    }
+    if ($computerSystem.Model) {
+        $model = $computerSystem.Model
+    }
+} catch {}
+
+# Clean up brand and model for a safe filename (keeps spaces, removes slashes/colons/etc.)
+ $invalidChars = [System.IO.Path]::GetInvalidFileNameChars() -join ''
+ $regex = "[{0}]" -f [System.Text.RegularExpressions.Regex]::Escape($invalidChars)
+ $brand = ($brand -replace $regex, '').Trim()
+ $model = ($model -replace $regex, '').Trim()
+
+# Fallbacks if they end up empty after cleaning
+if ([string]::IsNullOrWhiteSpace($brand)) { $brand = "UnknownBrand" }
+if ([string]::IsNullOrWhiteSpace($model)) { $model = "UnknownModel" }
+
+# Example: "Dell Inc. Inspiron 5402 PC Check 2026-08-15_14-30-00.html"
+ $fileName = "${brand} ${model} PC Check ${timestamp}.html"
+ $htmlPath = Join-Path $outputDir $fileName
 
  $tempBatteryHtml = Join-Path $env:TEMP "battery-report-$timestamp.html"
  $tempBatteryXml = Join-Path $env:TEMP "battery-report-$timestamp.xml"
@@ -184,16 +239,9 @@ function Get-ScoreRating {
         [int]$Score
     )
 
-    if ($Score -ge 85) {
-        return "Excellent"
-    }
-    elseif ($Score -ge 70) {
-        return "Good"
-    }
-    elseif ($Score -ge 50) {
-        return "Fair"
-    }
-
+    if ($Score -ge 85) { return "Excellent" }
+    elseif ($Score -ge 70) { return "Good" }
+    elseif ($Score -ge 50) { return "Fair" }
     return "Poor"
 }
 
@@ -202,13 +250,8 @@ function Get-ScoreClass {
         [int]$Score
     )
 
-    if ($Score -ge 85) {
-        return "rating-good"
-    }
-    elseif ($Score -ge 60) {
-        return "rating-fair"
-    }
-
+    if ($Score -ge 85) { return "rating-good" }
+    elseif ($Score -ge 60) { return "rating-fair" }
     return "rating-poor"
 }
 
@@ -217,13 +260,8 @@ function Get-ConfidenceRating {
         [int]$Confidence
     )
 
-    if ($Confidence -ge 85) {
-        return "High"
-    }
-    elseif ($Confidence -ge 65) {
-        return "Medium"
-    }
-
+    if ($Confidence -ge 85) { return "High" }
+    elseif ($Confidence -ge 65) { return "Medium" }
     return "Low"
 }
 
@@ -297,10 +335,10 @@ try {
         Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop |
         Select-Object `
             Name,
-        Manufacturer,
-        NumberOfCores,
-        NumberOfLogicalProcessors,
-        @{N = "MaxClock(GHz)"; E = {
+            Manufacturer,
+            NumberOfCores,
+            NumberOfLogicalProcessors,
+            @{N = "MaxClock(GHz)"; E = {
                 if ($_.MaxClockSpeed) {
                     [math]::Round($_.MaxClockSpeed / 1000, 2)
                 }
@@ -340,12 +378,8 @@ catch {
     [void]$collectionWarnings.Add("Operating system information could not be retrieved.")
 }
 
- $computerSystem = $null
-
-try {
-    $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
-}
-catch {
+# $computerSystem was already retrieved in the PATHS section for the filename!
+if (-not $computerSystem) {
     [void]$collectionWarnings.Add("Computer system information could not be retrieved.")
 }
 
@@ -460,10 +494,10 @@ if ($ramObjects.Count -gt 0) {
     $ram = @(
         $ramObjects | Select-Object `
             BankLabel,
-        DeviceLocator,
-        Manufacturer,
-        PartNumber,
-        @{N = "Capacity(GB)"; E = {
+            DeviceLocator,
+            Manufacturer,
+            PartNumber,
+            @{N = "Capacity(GB)"; E = {
                 if ($_.Capacity) {
                     [math]::Round($_.Capacity / 1GB, 1)
                 }
@@ -597,12 +631,12 @@ try {
         Get-PhysicalDisk -ErrorAction Stop |
         Select-Object `
             FriendlyName,
-        DeviceId,
-        MediaType,
-        BusType,
-        HealthStatus,
-        OperationalStatus,
-        @{N = "Size(GB)"; E = {
+            DeviceId,
+            MediaType,
+            BusType,
+            HealthStatus,
+            OperationalStatus,
+            @{N = "Size(GB)"; E = {
                 if ($_.Size) {
                     [math]::Round($_.Size / 1GB, 1)
                 }
@@ -653,7 +687,7 @@ try {
         try {
 
             $r = Get-StorageReliabilityCounter `
-                -PhysicalDisk $disk ``
+                -PhysicalDisk $disk `
                 -ErrorAction Stop
 
             if ($r) {
@@ -774,8 +808,8 @@ try {
         Where-Object { $_.DriveLetter } |
         Select-Object `
             DriveLetter,
-        FileSystem,
-        @{N = "Free(GB)"; E = {
+            FileSystem,
+            @{N = "Free(GB)"; E = {
                 if ($null -ne $_.SizeRemaining) {
                     [math]::Round($_.SizeRemaining / 1GB, 1)
                 }
@@ -832,11 +866,6 @@ try {
             $vendor = $video.AdapterCompatibility
         }
 
-        # Attempt to get the actual dedicated memory reported by the driver.
-        # NOTE: Win32_VideoController.AdapterRAM is a known-unreliable 32-bit
-        # field that overflows/misreports on GPUs with 4GB+ VRAM, so it is
-        # intentionally NOT used as a fallback. If the registry lookup below
-        # doesn't find a match, VRAM stays "Unknown" rather than guessing.
         try {
 
             $regBase =
@@ -915,7 +944,7 @@ try {
         Get-CimInstance Win32_VideoController -ErrorAction Stop |
         Select-Object `
             Name,
-        @{N = "Resolution"; E = {
+            @{N = "Resolution"; E = {
                 if ($_.CurrentHorizontalResolution -and
                     $_.CurrentVerticalResolution) {
 
@@ -1136,10 +1165,10 @@ try {
         Get-NetAdapter -ErrorAction Stop |
         Select-Object `
             Name,
-        InterfaceDescription,
-        Status,
-        LinkSpeed,
-        MacAddress
+            InterfaceDescription,
+            Status,
+            LinkSpeed,
+            MacAddress
     )
 }
 catch {
@@ -1583,11 +1612,6 @@ if ($cpuCores -ge 6) {
 
  $gamingScore = [Math]::Max(0, [Math]::Min(100, $gamingScore))
 
- $usageScores += Get-Suitability `
-    "Gaming" `
-    $gamingScore `
-(($gamingReasons -join " ") + " This is not an FPS benchmark.")
-
  $engScore = $perfScore
  $engReasons = @()
 
@@ -1610,11 +1634,6 @@ if ($cpuCores -ge 8) {
 
  $engScore = [Math]::Max(0, [Math]::Min(100, $engScore))
 
- $usageScores += Get-Suitability `
-    "Engineering / CAD" `
-    $engScore `
-(($engReasons -join " ") + " Actual CAD performance depends heavily on the specific application.")
-
  $progScore = $perfScore
  $progReasons = @()
 
@@ -1633,11 +1652,6 @@ elseif ($hasHdd) {
 }
 
  $progScore = [Math]::Max(0, [Math]::Min(100, $progScore))
-
- $usageScores += Get-Suitability `
-    "Programming" `
-    $progScore `
-(($progReasons -join " ") + " Compiler and IDE performance will vary by workload.")
 
  $contentScore = $perfScore
  $contentReasons = @()
@@ -1660,11 +1674,6 @@ if ($totalRamGB -ge 32) {
 }
 
  $contentScore = [Math]::Max(0, [Math]::Min(100, $contentScore))
-
- $usageScores += Get-Suitability `
-    "Video Editing" `
-    $contentScore `
-(($contentReasons -join " ") + " Codec support and GPU acceleration are not benchmarked.")
 
  $aiScore = 30
  $aiReasons = @()
@@ -1713,11 +1722,6 @@ elseif ($totalRamGB -lt 16) {
 
  $aiScore = [Math]::Max(0, [Math]::Min(100, $aiScore))
 
- $usageScores += Get-Suitability `
-    "Local AI / ML" `
-    $aiScore `
-(($aiReasons -join " ") + " Actual AI compatibility depends on GPU architecture, drivers, framework support, and model size.")
-
  $bizScore = $condScore
  $bizReasons = @()
 
@@ -1736,11 +1740,6 @@ if ($batteryHealthWarning) {
 }
 
  $bizScore = [Math]::Max(0, [Math]::Min(100, $bizScore))
-
- $usageScores += Get-Suitability `
-    "Business / Office" `
-    $bizScore `
-(($bizReasons -join " ") + " Office application licensing still requires manual verification.")
 
  $basicScore = 60
  $basicReasons = @()
@@ -1786,10 +1785,44 @@ elseif ($cpuCores -lt 2) {
 
  $basicScore = [Math]::Max(0, [Math]::Min(100, $basicScore))
 
+# ============================================================
+# SORTED BY MOST COMMON USER
+# ============================================================
+
  $usageScores += Get-Suitability `
-    "Basic / Everyday Use" `
+    "Everyday Use" `
     $basicScore `
-(($basicReasons -join " ") + " This is a general capability estimate.")
+    (($basicReasons -join " ") + " This is a general capability estimate.")
+
+ $usageScores += Get-Suitability `
+    "Business / Office" `
+    $bizScore `
+    (($bizReasons -join " ") + " Office application licensing still requires manual verification.")
+
+ $usageScores += Get-Suitability `
+    "Programming" `
+    $progScore `
+    (($progReasons -join " ") + " Compiler and IDE performance will vary by workload.")
+
+ $usageScores += Get-Suitability `
+    "Video Editing" `
+    $contentScore `
+    (($contentReasons -join " ") + " Codec support and GPU acceleration are not benchmarked.")
+
+ $usageScores += Get-Suitability `
+    "Gaming" `
+    $gamingScore `
+    (($gamingReasons -join " ") + " This is not an FPS benchmark.")
+
+ $usageScores += Get-Suitability `
+    "Engineering / CAD" `
+    $engScore `
+    (($engReasons -join " ") + " Actual CAD performance depends heavily on the specific application.")
+
+ $usageScores += Get-Suitability `
+    "Local AI / ML" `
+    $aiScore `
+    (($aiReasons -join " ") + " Actual AI compatibility depends on GPU architecture, drivers, framework support, and model size.")
 
 Write-Step "Usage suitability"
 
@@ -2000,6 +2033,23 @@ else {
         No battery report available. This may be a desktop PC or the Windows
         battery reporting interface may not be available.
     </p>
+</div>
+"@
+}
+
+ $collectionWarningsHtml = ""
+if ($collectionWarnings.Count -gt 0) {
+    $warningItems = ($collectionWarnings | Select-Object -Unique | ForEach-Object { "<li>$(ConvertTo-HtmlSafe $_)</li>" }) -join "`n"
+    $collectionWarningsHtml = @"
+<div class="card">
+    <h2>Data Collection Warnings</h2>
+    <p class="muted" style="margin-top:0;">
+        Some information could not be collected. Missing data is treated as unknown
+        rather than automatically healthy.
+    </p>
+    <ul>
+        $warningItems
+    </ul>
 </div>
 "@
 }
@@ -2548,7 +2598,8 @@ function setTheme(theme) {
     if (toggle) { toggle.checked = theme === "dark"; }
 }
 document.addEventListener("DOMContentLoaded", function () {
-    setTheme("light");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setTheme(prefersDark ? "dark" : "light");
 });
 </script>
 
@@ -2561,7 +2612,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <div class="theme-switch-wrapper">
             <span>Dark Mode</span>
             <label class="switch">
-                <input type="checkbox" id="themeToggle" onchange="setTheme(this.checked ? 'dark' : 'light')">
+                <input type="checkbox" id="themeToggle" checked onchange="setTheme(this.checked ? 'dark' : 'light')">
                 <span class="slider"></span>
             </label>
         </div>
@@ -2704,9 +2755,9 @@ document.addEventListener("DOMContentLoaded", function () {
     $(To-HtmlTable $storage)
     $diskWarningSection
     <h3>Storage Reliability</h3>
- $(To-HtmlTable $reliability)
- $reliabilitySuspectNote
-<h3>Storage Free Space</h3>
+    $(To-HtmlTable $reliability)
+    $reliabilitySuspectNote
+    <h3>Storage Free Space</h3>
     $(To-HtmlTable $volumes)
 </div>
 
@@ -2861,29 +2912,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 <!-- COLLECTION WARNINGS -->
 
- $(if ($collectionWarnings.Count -gt 0) {
-
-    $warningItems = (
-        $collectionWarnings |
-        Select-Object -Unique |
-        ForEach-Object {
-            "<li>$(ConvertTo-HtmlSafe $_)</li>"
-        }
-    ) -join "`n"
-
-    @"
-<div class="card">
-    <h2>Data Collection Warnings</h2>
-    <p class="muted" style="margin-top:0;">
-        Some information could not be collected. Missing data is treated as unknown
-        rather than automatically healthy.
-    </p>
-    <ul>
-        $warningItems
-    </ul>
-</div>
-"@
-})
+ $collectionWarningsHtml
 
 <!-- FOOTER -->
 
