@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    PC Check Report v2.1 - Comprehensive used-PC hardware and software audit tool.
+    PC Check Report v2.2 - Comprehensive used-PC hardware and software audit tool.
 
 .DESCRIPTION
     Collects hardware, storage, battery, security, Windows, network and event-log
@@ -250,8 +250,9 @@ function Get-ScoreClass {
         [int]$Score
     )
 
-    if ($Score -ge 85) { return "rating-good" }
-    elseif ($Score -ge 60) { return "rating-fair" }
+    # Keep visual thresholds aligned with Get-ScoreRating.
+    if ($Score -ge 70) { return "rating-good" }
+    elseif ($Score -ge 50) { return "rating-fair" }
     return "rating-poor"
 }
 
@@ -307,7 +308,7 @@ Clear-Host
 
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "          PC CHECK REPORT v2.1" -ForegroundColor Cyan
+Write-Host "          PC CHECK REPORT v2.2" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -634,7 +635,6 @@ try {
             DeviceId,
             MediaType,
             BusType,
-            HealthStatus,
             OperationalStatus,
             @{N = "Size(GB)"; E = {
                 if ($_.Size) {
@@ -670,128 +670,14 @@ else {
 }
 
 # ------------------------------------------------------------
-# STORAGE RELIABILITY
+# STORAGE HEALTH / SMART TELEMETRY
 # ------------------------------------------------------------
 
-Write-Check "Collecting storage reliability..."
+# Deliberately do not call Get-StorageReliabilityCounter or infer SSD health.
+# Windows/controller support is inconsistent, so unavailable counters must not
+# affect the condition score or create false health warnings.
 
- $reliability = @()
- $diskWarnings = New-Object System.Collections.ArrayList
-
-try {
-
-    $physicalDisks = @(Get-PhysicalDisk -ErrorAction Stop)
-
-    foreach ($disk in $physicalDisks) {
-
-        try {
-
-            $r = Get-StorageReliabilityCounter `
-                -PhysicalDisk $disk `
-                -ErrorAction Stop
-
-            if ($r) {
-
-                $wear = "Unknown"
-                $wearIsSuspect = $false
-
-                if ($null -ne $r.Wear) {
-                    $wear = "$($r.Wear)%"
-
-                    if ($r.Wear -eq 0 -and
-                        ($null -eq $r.PowerOnHours -or $r.PowerOnHours -eq 0)) {
-                        $wearIsSuspect = $true
-                    }
-                }
-
-                $temperature = "Unknown"
-
-                if ($null -ne $r.Temperature) {
-                    $temperature = "$($r.Temperature)"
-                }
-
-                $readErrors = 0
-
-                if ($null -ne $r.ReadErrorsUncorrected) {
-                    $readErrors = $r.ReadErrorsUncorrected
-                }
-
-                $powerOnHours = "Unknown"
-
-                if ($null -ne $r.PowerOnHours -and $r.PowerOnHours -gt 0) {
-                    $powerOnHours = $r.PowerOnHours
-                }
-
-                $reliability += [PSCustomObject]@{
-                    DeviceId     = $disk.DeviceId
-                    FriendlyName = $disk.FriendlyName
-                    Wear         = if ($wearIsSuspect) { "0% (unverified)" } else { $wear }
-                    'Temp(C)'    = $temperature
-                    ReadErrors   = $readErrors
-                    PowerOnHours = $powerOnHours
-                }
-
-                if ($readErrors -gt 0) {
-
-                    [void]$diskWarnings.Add(
-                        "Disk $($disk.DeviceId): $readErrors uncorrected read errors."
-                    )
-                }
-
-                if ($wear -ne "Unknown") {
-
-                    $wearNumber = 0
-
-                    try {
-                        $wearNumber = [int]($wear -replace '%', '')
-                    }
-                    catch {}
-
-                    if ($wearNumber -gt 80) {
-
-                        [void]$diskWarnings.Add(
-                            "Disk $($disk.DeviceId): $wear% reported. Investigate SSD endurance."
-                        )
-                    }
-                }
-            }
-        }
-        catch {
-            # Reliability counters are not supported on every device.
-        }
-    }
-}
-catch {
-    [void]$collectionWarnings.Add(
-        "Storage reliability counters could not be queried."
-    )
-}
-
-foreach ($s in $storage) {
-
-    if ($s.HealthStatus -and
-        $s.HealthStatus.ToString() -notin @("Healthy", "Unknown")) {
-
-        [void]$diskWarnings.Add(
-            "$($s.FriendlyName): reports HealthStatus '$($s.HealthStatus)'."
-        )
-    }
-}
-
-Write-Step "Storage reliability"
-
- $reliabilitySuspectNote = ""
-if (($reliability | Where-Object { $_.Wear -eq "0% (unverified)" }).Count -gt 0) {
-    $reliabilitySuspectNote = @"
-<div class="warningbox">
-    <b>Note:</b> One or more drives report 0% wear with no power-on-hours
-    data. This combination usually means Windows could not read real SMART
-    data from this drive/controller (common on RAID-mode NVMe or virtual
-    disks) rather than confirming the drive is unworn. Use CrystalDiskInfo
-    for a real reading.
-</div>
-"@
-}
+Write-Step "Storage inventory (SMART health not assessed)"
 
 # ------------------------------------------------------------
 # VOLUMES
@@ -908,17 +794,22 @@ catch {
     [void]$collectionWarnings.Add("GPU information could not be retrieved.")
 }
 
+# Use the maximum reported VRAM on a single adapter. VRAM across multiple GPUs
+# is not generally a single shared pool and must not be added for suitability.
  $totalVram = 0
  $knownGpuCount = 0
 
 foreach ($g in $gpu) {
-
     if ($g.'VRAM(GB)' -is [double] -or
         $g.'VRAM(GB)' -is [int] -or
         $g.'VRAM(GB)' -is [decimal]) {
 
-        $totalVram += $g.'VRAM(GB)'
-        $knownGpuCount++
+        if ([double]$g.'VRAM(GB)' -gt 0) {
+            $knownGpuCount++
+            if ([double]$g.'VRAM(GB)' -gt $totalVram) {
+                $totalVram = [double]$g.'VRAM(GB)'
+            }
+        }
     }
 }
 
@@ -1208,6 +1099,14 @@ catch {
  $criticalCount = $criticals.Count
  $errorCount = $errorEvents.Count
 
+# Group by provider + event ID + level. This is used for the bottom summary,
+# so repeated copies of the same event do not look like separate fault types.
+ $eventGroups = @(
+    $errorEvents |
+    Group-Object { "{0}|{1}|{2}" -f $_.ProviderName, $_.Id, $_.Level } |
+    Sort-Object Count -Descending
+)
+
  $wheaErrors = @(
     $errorEvents |
     Where-Object {
@@ -1242,40 +1141,26 @@ Write-Step "Event logs"
 
  $issues = New-Object System.Collections.ArrayList
 
-if ($diskWarnings.Count -gt 0) {
+# Consolidate event-log findings into one issue so overlapping categories do not
+# inflate the issue count. Specific event patterns and occurrences are detailed
+# in the grouped summary near the bottom of the report.
+if ($eventGroups.Count -gt 0) {
+    if ($wheaErrors.Count -ge 5) {
+        $eventLogSeverity = "High"
+    }
+    elseif ($criticalCount -gt 0 -or $wheaErrors.Count -gt 0 -or $driverErrors.Count -gt 0 -or $errorCount -gt 20) {
+        $eventLogSeverity = "Medium"
+    }
+    else {
+        $eventLogSeverity = "Low"
+    }
 
+    $eventLogMessage = "$errorCount Critical/Error event record(s) across $($eventGroups.Count) distinct provider/ID/level patterns. Category matches may overlap; review the grouped details rather than treating every record as a separate fault."
     Add-Issue `
         -List $issues `
-        -Category "Storage" `
-        -Severity "High" `
-        -Message "Storage health warnings were detected. Review the Storage Health section."
-}
-
-if ($wheaErrors.Count -gt 0) {
-
-    Add-Issue `
-        -List $issues `
-        -Category "Hardware" `
-        -Severity "High" `
-        -Message "$($wheaErrors.Count) hardware-related WHEA/HAL events were found in the last 30 days."
-}
-
-if ($criticalCount -gt 0) {
-
-    Add-Issue `
-        -List $issues `
-        -Category "System" `
-        -Severity "Medium" `
-        -Message "$criticalCount critical System events were recorded in the last 30 days."
-}
-
-if ($driverErrors.Count -gt 0) {
-
-    Add-Issue `
-        -List $issues `
-        -Category "Drivers" `
-        -Severity "Medium" `
-        -Message "$($driverErrors.Count) display/graphics-related error events were detected."
+        -Category "System Logs" `
+        -Severity $eventLogSeverity `
+        -Message $eventLogMessage
 }
 
 if ($batteryHealthWarning) {
@@ -1338,72 +1223,67 @@ Write-Check "Calculating Hardware Condition..."
  $condScore = 100
  $condReasons = New-Object System.Collections.ArrayList
 
-if ($diskWarnings.Count -gt 0) {
+# Storage SMART/wear is intentionally excluded because Windows does not expose
+# reliable counters for every drive/controller. Storage is inventoried below.
 
-    $condScore -= 25
-
+if ($wheaErrors.Count -ge 5) {
+    $condScore -= 15
     [void]$condReasons.Add(
-        "Storage health warnings detected."
+        "Repeated WHEA/HAL events were recorded. Investigate the event details; this is not proof of a specific failed component."
     )
 }
-
-if ($wheaErrors.Count -gt 0) {
-
-    $condScore -= 20
-
+elseif ($wheaErrors.Count -ge 3) {
+    $condScore -= 8
     [void]$condReasons.Add(
-        "Hardware-related WHEA/HAL events detected."
+        "Multiple WHEA/HAL events were recorded. Review timestamps and event details."
+    )
+}
+elseif ($wheaErrors.Count -gt 0) {
+    [void]$condReasons.Add(
+        "WHEA/HAL event(s) exist and should be reviewed, but isolated log entries do not prove a hardware fault."
     )
 }
 
 if ($batteryHealthWarning) {
-
     $condScore -= 10
-
     [void]$condReasons.Add(
-        "Battery health is below 70%."
+        "Battery health is below 70% of its original design capacity."
     )
 }
 
-if ($criticalCount -gt 5) {
-
-    $condScore -= 10
-
+# Generic critical System events can result from shutdowns, software, or power
+# interruptions. Report them, but do not automatically treat them as hardware damage.
+if ($criticalCount -gt 0) {
     [void]$condReasons.Add(
-        "More than five critical System events were recorded."
-    )
-}
-elseif ($criticalCount -gt 0) {
-
-    [void]$condReasons.Add(
-        "Critical System events exist and should be reviewed."
+        "$criticalCount critical System event(s) were recorded; inspect the grouped event summary before drawing conclusions."
     )
 }
 
-if ($driverErrors.Count -gt 5) {
-
-    $condScore -= 5
-
-    [void]$condReasons.Add(
-        "Multiple graphics/display driver errors were detected."
-    )
-}
-
-if ($updateWarning) {
-
+if ($driverErrors.Count -ge 10) {
     $condScore -= 3
-
     [void]$condReasons.Add(
-        "Windows update history is more than 90 days old."
+        "Repeated graphics/display driver errors were detected. Check whether they recur during normal use."
+    )
+}
+elseif ($driverErrors.Count -gt 0) {
+    [void]$condReasons.Add(
+        "Graphics/display driver error events were detected; review the details, as these do not automatically indicate hardware failure."
+    )
+}
+
+# Stale Windows update history is a software-maintenance finding, not a direct
+# measure of physical hardware condition, so it is not deducted from this score.
+if ($updateWarning) {
+    [void]$condReasons.Add(
+        "Windows update history is more than 90 days old; review update status separately from hardware condition."
     )
 }
 
  $condScore = [Math]::Max(0, [Math]::Min(100, $condScore))
 
 if ($condReasons.Count -eq 0) {
-
     [void]$condReasons.Add(
-        "No major hardware or system problems were detected."
+        "No major issues were detected by the limited automated checks. This does not replace physical inspection or stress testing."
     )
 }
 
@@ -1449,54 +1329,40 @@ Write-Check "Calculating Hardware Capability..."
  $perfScore = 100
  $perfReasons = New-Object System.Collections.ArrayList
 
-if ($totalRamGB -lt 4) {
-
-    $perfScore -= 40
-
-    [void]$perfReasons.Add(
-        "Very low system RAM (<4 GB)."
-    )
+if ($totalRamGB -gt 0) {
+    if ($totalRamGB -lt 4) {
+        $perfScore -= 40
+        [void]$perfReasons.Add("Very low system RAM (<4 GB).")
+    }
+    elseif ($totalRamGB -lt 8) {
+        $perfScore -= 30
+        [void]$perfReasons.Add("Low system RAM (<8 GB).")
+    }
+    elseif ($totalRamGB -lt 16) {
+        $perfScore -= 10
+        [void]$perfReasons.Add("Moderate system RAM (8-15 GB).")
+    }
 }
-elseif ($totalRamGB -lt 8) {
-
-    $perfScore -= 30
-
-    [void]$perfReasons.Add(
-        "Low system RAM (<8 GB)."
-    )
-}
-elseif ($totalRamGB -lt 16) {
-
-    $perfScore -= 10
-
-    [void]$perfReasons.Add(
-        "Moderate system RAM (8-15 GB)."
-    )
+else {
+    [void]$perfReasons.Add("RAM capacity could not be determined; no RAM deduction was applied.")
 }
 
-if ($cpuCores -lt 2) {
-
-    $perfScore -= 30
-
-    [void]$perfReasons.Add(
-        "Very low CPU core count."
-    )
+if ($cpuCores -gt 0) {
+    if ($cpuCores -lt 2) {
+        $perfScore -= 30
+        [void]$perfReasons.Add("Very low CPU core count.")
+    }
+    elseif ($cpuCores -lt 4) {
+        $perfScore -= 20
+        [void]$perfReasons.Add("Low CPU core count (<4).")
+    }
+    elseif ($cpuCores -lt 6) {
+        $perfScore -= 5
+        [void]$perfReasons.Add("Moderate CPU core count.")
+    }
 }
-elseif ($cpuCores -lt 4) {
-
-    $perfScore -= 20
-
-    [void]$perfReasons.Add(
-        "Low CPU core count (<4)."
-    )
-}
-elseif ($cpuCores -lt 6) {
-
-    $perfScore -= 5
-
-    [void]$perfReasons.Add(
-        "Moderate CPU core count."
-    )
+else {
+    [void]$perfReasons.Add("CPU core count could not be determined; no CPU deduction was applied.")
 }
 
 if ($knownGpuCount -eq 0) {
@@ -1536,13 +1402,15 @@ elseif ($totalVramGB -lt 4) {
     }
 ).Count -gt 0
 
-if ($hasHdd -and -not $hasSsd) {
-
+if ($storage.Count -eq 0) {
+    [void]$perfReasons.Add("Storage devices could not be inventoried; no storage-type deduction was applied.")
+}
+elseif ($hasHdd -and -not $hasSsd) {
     $perfScore -= 15
-
-    [void]$perfReasons.Add(
-        "System storage appears to consist of HDD storage."
-    )
+    [void]$perfReasons.Add("System storage appears to consist of HDD storage.")
+}
+elseif (-not $hasHdd -and -not $hasSsd) {
+    [void]$perfReasons.Add("Storage media type was not identified; no storage-type deduction was applied.")
 }
 
  $perfScore = [Math]::Max(0, [Math]::Min(100, $perfScore))
@@ -1567,10 +1435,15 @@ if ($totalRamGB -eq 0) {
 }
 
 if ($knownGpuCount -eq 0) {
-    $capabilityConfidence -= 10
+    # Missing GPU-memory data can materially affect gaming, CAD and AI estimates.
+    $capabilityConfidence -= 25
 }
 
 if ($storage.Count -eq 0) {
+    $capabilityConfidence -= 10
+}
+elseif (-not $hasSsd -and -not $hasHdd) {
+    # Drive inventory may be available even when the media type is not identified.
     $capabilityConfidence -= 10
 }
 
@@ -1594,16 +1467,19 @@ Write-Check "Calculating usage suitability..."
  $gamingScore = $perfScore
  $gamingReasons = @()
 
-if ($totalVramGB -ge 8) {
+if ($knownGpuCount -eq 0) {
+    $gamingReasons += "GPU memory could not be determined; no VRAM adjustment was applied."
+}
+elseif ($totalVramGB -ge 8) {
     $gamingScore += 10
-    $gamingReasons += "8+ GB reported GPU memory."
+    $gamingReasons += "At least 8 GB reported on one GPU adapter."
 }
 elseif ($totalVramGB -lt 4) {
     $gamingScore -= 10
-    $gamingReasons += "Less than 4 GB reported GPU memory."
+    $gamingReasons += "Less than 4 GB reported GPU memory on the largest detected adapter."
 }
 else {
-    $gamingReasons += "GPU memory is adequate for lighter gaming."
+    $gamingReasons += "GPU memory may be adequate for lighter gaming; actual GPU performance is not benchmarked."
 }
 
 if ($cpuCores -ge 6) {
@@ -1623,9 +1499,12 @@ elseif ($totalRamGB -ge 16) {
     $engScore += 5
     $engReasons += "16+ GB RAM is suitable for many workloads."
 }
-else {
+elseif ($totalRamGB -gt 0) {
     $engScore -= 5
     $engReasons += "Less than 16 GB RAM may limit larger projects."
+}
+else {
+    $engReasons += "RAM capacity is unavailable; no RAM adjustment was applied."
 }
 
 if ($cpuCores -ge 8) {
@@ -1664,8 +1543,11 @@ elseif ($cpuThreads -ge 8) {
     $contentScore += 5
     $contentReasons += "Adequate logical processor count."
 }
-else {
+elseif ($cpuThreads -gt 0) {
     $contentReasons += "Lower thread count may limit heavier editing workloads."
+}
+else {
+    $contentReasons += "Logical processor count is unavailable; no thread-count conclusion was applied."
 }
 
 if ($totalRamGB -ge 32) {
@@ -1678,35 +1560,33 @@ if ($totalRamGB -ge 32) {
  $aiScore = 30
  $aiReasons = @()
 
-if ($totalVramGB -ge 16) {
-
+if ($knownGpuCount -eq 0) {
+    $aiScore = 30
+    $aiReasons += "GPU memory could not be determined; this is a low-confidence baseline, not a measured AI capability score."
+}
+elseif ($totalVramGB -ge 16) {
     $aiScore = 90
-    $aiReasons += "16+ GB reported GPU memory."
+    $aiReasons += "16+ GB reported on one GPU adapter."
 }
 elseif ($totalVramGB -ge 12) {
-
     $aiScore = 80
-    $aiReasons += "12+ GB reported GPU memory."
+    $aiReasons += "12+ GB reported on one GPU adapter."
 }
 elseif ($totalVramGB -ge 8) {
-
     $aiScore = 70
-    $aiReasons += "8+ GB reported GPU memory."
+    $aiReasons += "8+ GB reported on one GPU adapter."
 }
 elseif ($totalVramGB -ge 6) {
-
     $aiScore = 55
-    $aiReasons += "6+ GB reported GPU memory."
+    $aiReasons += "6+ GB reported on one GPU adapter."
 }
 elseif ($totalVramGB -ge 4) {
-
     $aiScore = 40
-    $aiReasons += "4+ GB reported GPU memory."
+    $aiReasons += "4+ GB reported on one GPU adapter."
 }
 else {
-
     $aiScore = 20
-    $aiReasons += "Less than 4 GB reported GPU memory."
+    $aiReasons += "Less than 4 GB reported GPU memory on the largest detected adapter."
 }
 
 if ($totalRamGB -ge 32) {
@@ -1714,10 +1594,12 @@ if ($totalRamGB -ge 32) {
     $aiScore += 5
     $aiReasons += "32+ GB system RAM."
 }
-elseif ($totalRamGB -lt 16) {
-
+elseif ($totalRamGB -gt 0 -and $totalRamGB -lt 16) {
     $aiScore -= 5
     $aiReasons += "Less than 16 GB system RAM."
+}
+elseif ($totalRamGB -eq 0) {
+    $aiReasons += "System RAM capacity is unavailable; no RAM adjustment was applied."
 }
 
  $aiScore = [Math]::Max(0, [Math]::Min(100, $aiScore))
@@ -1729,9 +1611,12 @@ if ($totalRamGB -ge 8) {
     $bizScore += 5
     $bizReasons += "At least 8 GB RAM."
 }
-else {
+elseif ($totalRamGB -gt 0) {
     $bizScore -= 10
     $bizReasons += "Less than 8 GB RAM."
+}
+else {
+    $bizReasons += "RAM capacity is unavailable; no RAM adjustment was applied."
 }
 
 if ($batteryHealthWarning) {
@@ -1744,25 +1629,26 @@ if ($batteryHealthWarning) {
  $basicScore = 60
  $basicReasons = @()
 
-if ($totalRamGB -ge 16) {
-
-    $basicScore += 20
-    $basicReasons += "16+ GB RAM."
-}
-elseif ($totalRamGB -ge 8) {
-
-    $basicScore += 15
-    $basicReasons += "8+ GB RAM."
-}
-elseif ($totalRamGB -ge 4) {
-
-    $basicScore += 5
-    $basicReasons += "4+ GB RAM."
+if ($totalRamGB -gt 0) {
+    if ($totalRamGB -ge 16) {
+        $basicScore += 20
+        $basicReasons += "16+ GB RAM."
+    }
+    elseif ($totalRamGB -ge 8) {
+        $basicScore += 15
+        $basicReasons += "8+ GB RAM."
+    }
+    elseif ($totalRamGB -ge 4) {
+        $basicScore += 5
+        $basicReasons += "4+ GB RAM."
+    }
+    else {
+        $basicScore -= 20
+        $basicReasons += "Very limited RAM."
+    }
 }
 else {
-
-    $basicScore -= 20
-    $basicReasons += "Very limited RAM."
+    $basicReasons += "RAM capacity is unavailable; no RAM adjustment was applied."
 }
 
 if ($hasSsd) {
@@ -1779,8 +1665,11 @@ elseif ($hasHdd) {
 if ($cpuCores -ge 4) {
     $basicScore += 5
 }
-elseif ($cpuCores -lt 2) {
+elseif ($cpuCores -gt 0 -and $cpuCores -lt 2) {
     $basicScore -= 10
+}
+elseif ($cpuCores -eq 0) {
+    $basicReasons += "CPU core count is unavailable; no CPU adjustment was applied."
 }
 
  $basicScore = [Math]::Max(0, [Math]::Min(100, $basicScore))
@@ -1844,39 +1733,34 @@ Write-Step "Usage suitability"
 )
 
 if ($highIssues.Count -gt 0) {
-
     $buyerVerdict = "INVESTIGATE BEFORE BUYING"
     $buyerClass = "verdict-danger"
-    $buyerExplanation =
-    "One or more potentially significant hardware or storage issues were detected."
+    $buyerExplanation = "Recurring potentially significant findings were detected. Review the grouped event details and verify the hardware before purchasing."
 }
 elseif ($condScore -lt 60) {
-
     $buyerVerdict = "CAUTION"
     $buyerClass = "verdict-warning"
-    $buyerExplanation =
-    "The system may be usable, but its condition warrants additional investigation."
+    $buyerExplanation = "The automated condition indicators are concerning. Investigate the findings and perform physical checks before purchasing."
+}
+elseif ($perfScore -lt 35) {
+    $buyerVerdict = "LIMITED CAPABILITY"
+    $buyerClass = "verdict-neutral"
+    $buyerExplanation = "No strong condition warning necessarily follows from this score, but the detected hardware has limited estimated capability. Suitability depends on your intended workload."
 }
 elseif ($mediumIssues.Count -gt 2) {
-
     $buyerVerdict = "CAUTION"
     $buyerClass = "verdict-warning"
-    $buyerExplanation =
-    "Several issues were detected. Review the report before purchasing."
+    $buyerExplanation = "Several findings require review. Check their details and complete the manual inspection before purchasing."
 }
-elseif ($condScore -ge 85) {
-
+elseif ($overallScore -ge 80 -and $condScore -ge 70) {
     $buyerVerdict = "GOOD CANDIDATE"
     $buyerClass = "verdict-good"
-    $buyerExplanation =
-    "No major automated hardware or system problems were detected."
+    $buyerExplanation = "The automated condition and capability estimates are reasonably favorable. This is not a purchase guarantee; price, workload fit and physical inspection still matter."
 }
 else {
-
     $buyerVerdict = "REVIEW REPORT"
     $buyerClass = "verdict-neutral"
-    $buyerExplanation =
-    "The PC appears usable, but the automated results do not justify a strong purchase recommendation."
+    $buyerExplanation = "The automated results do not justify a strong recommendation. Review capability, condition findings, price and the intended workload."
 }
 
 # ============================================================
@@ -1923,49 +1807,51 @@ else {
     "<div class='issue issue-good'><span class='issue-badge'>OK</span><span class='issue-msg'>No major automated issues detected.</span></div>"
 }
 
- $criticalBlocks = ""
+# Group repeated event records by provider + event ID + level. This makes the
+# bottom summary useful without presenting every occurrence as a separate fault.
+ $eventSummaryHtml = ""
 
-if ($criticals.Count -gt 0) {
+if ($eventGroups.Count -gt 0) {
+    $eventPatternCards = foreach ($group in $eventGroups) {
+        $groupEvents = @($group.Group | Sort-Object TimeCreated -Descending)
+        $latestEvent = $groupEvents[0]
+        $provider = ConvertTo-HtmlSafe (Get-SafeValue $latestEvent.ProviderName "Unknown provider")
+        $eventId = ConvertTo-HtmlSafe $latestEvent.Id
+        $levelLabel = if ($latestEvent.Level -eq 1) { "Critical" } else { "Error" }
+        $levelClass = if ($latestEvent.Level -eq 1) { "event-level-critical" } else { "event-level-error" }
+        $latestTime = ConvertTo-HtmlSafe $latestEvent.TimeCreated
 
-    $criticalBlocks = (
-        $criticals |
-        Select-Object -First 10 |
-        ForEach-Object {
-
-            $eventTime = ConvertTo-HtmlSafe $_.TimeCreated
-            $provider = ConvertTo-HtmlSafe $_.ProviderName
-            $id = ConvertTo-HtmlSafe $_.Id
-            $message = ConvertTo-HtmlSafe $_.Message
-
-            "<div class='eventblock'><b>$eventTime</b> - $provider (ID $id)<pre>$message</pre></div>"
+        $sampleMessage = [string]$latestEvent.Message
+        $sampleMessage = ($sampleMessage -replace '\s+', ' ').Trim()
+        if ($sampleMessage.Length -gt 280) {
+            $sampleMessage = $sampleMessage.Substring(0, 277) + "..."
         }
-    ) -join "`n"
+        $sampleMessage = ConvertTo-HtmlSafe $sampleMessage
+
+        $occurrenceHtml = (
+            $groupEvents | Select-Object -First 5 | ForEach-Object {
+                $occurrenceTime = ConvertTo-HtmlSafe $_.TimeCreated
+                $occurrenceMessage = [string]$_.Message
+                $occurrenceMessage = ($occurrenceMessage -replace '\s+', ' ').Trim()
+                if ($occurrenceMessage.Length -gt 360) {
+                    $occurrenceMessage = $occurrenceMessage.Substring(0, 357) + "..."
+                }
+                $occurrenceMessage = ConvertTo-HtmlSafe $occurrenceMessage
+                "<div class='event-occurrence'><b>$occurrenceTime</b><p>$occurrenceMessage</p></div>"
+            }
+        ) -join "`n"
+
+        $moreOccurrencesNote = if ($groupEvents.Count -gt 5) {
+            "<p class='muted small'>Showing the 5 most recent of $($groupEvents.Count) occurrences in this group.</p>"
+        } else { "" }
+
+        "<div class='event-pattern'><div class='event-pattern-head'><div><strong>$provider (Event ID $eventId)</strong><div class='muted small'>Level: $levelLabel &middot; Latest: $latestTime</div></div><span class='event-count $levelClass'>$($groupEvents.Count) occurrence(s)</span></div><p class='event-sample'><b>Latest message:</b> $sampleMessage</p><details><summary>Show recent occurrences</summary>$occurrenceHtml$moreOccurrencesNote</details></div>"
+    }
+
+    $eventSummaryHtml = $eventPatternCards -join "`n"
 }
 else {
-
-    $criticalBlocks =
-    "<p class='muted'>No Critical System events were found in the last 30 days.</p>"
-}
-
- $diskWarningSection = ""
-
-if ($diskWarnings.Count -gt 0) {
-
-    $diskItems = (
-        $diskWarnings |
-        ForEach-Object {
-            "<li>$(ConvertTo-HtmlSafe $_)</li>"
-        }
-    ) -join "`n"
-
-    $diskWarningSection = @"
-<div class="warningbox">
-    <b>Storage Health Warnings:</b>
-    <ul>
-        $diskItems
-    </ul>
-</div>
-"@
+    $eventSummaryHtml = "<p class='muted'>No Critical or Error-level System events were returned for the last 30 days. This is not a guarantee of hardware health.</p>"
 }
 
 if ($lastUpdateDate) {
@@ -2091,6 +1977,10 @@ if ($collectionWarnings.Count -gt 0) {
     --danger-border: #e0483f;
     --danger-text: #a5241c;
 
+    --neutral-bg: #f1f4f8;
+    --neutral-border: #9aa7b7;
+    --neutral-text: #4b5563;
+
     --button-bg: #14314f;
     --button-text: #ffffff;
 
@@ -2121,6 +2011,10 @@ if ($collectionWarnings.Count -gt 0) {
     --danger-bg: #2a1414;
     --danger-border: #e0483f;
     --danger-text: #ff9c94;
+
+    --neutral-bg: #202632;
+    --neutral-border: #64748b;
+    --neutral-text: #cbd5e1;
 
     --button-bg: #5b9dff;
     --button-text: #0e1117;
@@ -2381,6 +2275,40 @@ tr:hover td { background-color: color-mix(in srgb, var(--accent) 6%, var(--table
     font-size: 12.5px;
 }
 
+.event-pattern {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 15px 16px;
+    margin: 12px 0;
+    background: var(--card-bg);
+}
+
+.event-pattern-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.event-count {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--table-stripe);
+}
+
+.event-level-critical { color: var(--danger-text); background: var(--danger-bg); }
+.event-level-error { color: var(--warning-text); background: var(--warning-bg); }
+.event-sample { margin: 10px 0 0; font-size: 13.5px; }
+.event-occurrence { border-top: 1px solid var(--border-color); padding: 10px 0; font-size: 12.5px; }
+.event-occurrence p { margin: 4px 0 0; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) {
+    .event-pattern-head { flex-direction: column; }
+}
+
 pre {
     background: var(--table-stripe);
     padding: 14px 16px;
@@ -2481,7 +2409,7 @@ pre {
 .verdict-good    { background: var(--summary-bg); border-color: var(--summary-border); color: var(--summary-text); }
 .verdict-warning { background: var(--warning-bg); border-color: var(--warning-border); color: var(--warning-text); }
 .verdict-danger  { background: var(--danger-bg);  border-color: var(--danger-border);  color: var(--danger-text); }
-.verdict-neutral { background: var(--summary-bg); border-color: var(--summary-border); color: var(--summary-text); }
+.verdict-neutral { background: var(--neutral-bg); border-color: var(--neutral-border); color: var(--neutral-text); }
 
 /* ---------- ISSUES ---------- */
 
@@ -2675,9 +2603,10 @@ document.addEventListener("DOMContentLoaded", function () {
         <p class="small muted" style="margin-top:0;">
             Estimated capability, not a synthetic benchmark. Does not measure actual FPS,
             application performance, thermals, or sustained performance. This score
-            reflects RAM/CPU-core-count/VRAM tiers only &mdash; it does not account for
-            CPU/GPU generation or architecture. Two GPUs with the same reported VRAM can
-            differ enormously in real-world performance.
+            reflects coarse RAM/CPU-core-count/VRAM tiers only &mdash; it does not account for
+            CPU/GPU generation or architecture. VRAM is the maximum reported on a single adapter,
+            not combined across adapters. Two GPUs with the same reported VRAM can differ enormously
+            in real-world performance.
         </p>
         <h3>Why this score</h3>
         <ul>
@@ -2686,6 +2615,10 @@ document.addEventListener("DOMContentLoaded", function () {
     </div>
 
 </div>
+
+<p class="muted small" style="margin:-8px 0 22px;">
+    Confidence reflects data availability, not validated benchmark accuracy or certainty about physical condition. This automated report cannot prove that a used PC is fault-free.
+</p>
 
 <!-- ISSUES -->
 
@@ -2734,7 +2667,7 @@ document.addEventListener("DOMContentLoaded", function () {
     <div class="card">
         <h2>GPU &amp; Display</h2>
         <div class="summary">
-            Reported GPU memory: $(ConvertTo-HtmlSafe $totalVramStr)
+            Maximum reported GPU memory on one adapter: $(ConvertTo-HtmlSafe $totalVramStr)
         </div>
         <h3>Video Controllers</h3>
         $(To-HtmlTable $gpu)
@@ -2746,17 +2679,16 @@ document.addEventListener("DOMContentLoaded", function () {
 <!-- STORAGE -->
 
 <div class="card">
-    <h2>Storage Health</h2>
+    <h2>Storage Devices &amp; Capacity</h2>
     <div class="summary">
         Total Physical Storage: $(ConvertTo-HtmlSafe $totalStorageStr)
         &nbsp;&middot;&nbsp;
         Free Space: $(ConvertTo-HtmlSafe $totalFreeStr) of $(ConvertTo-HtmlSafe $totalVolSpaceStr)
     </div>
+    <p class="muted small" style="margin-top:0;">
+        This report inventories drives, interfaces and capacity but does not assess SSD/HDD SMART health, wear percentage or remaining life. Windows storage reliability counters are inconsistent across drives and controllers, so they are intentionally excluded from scoring. Use CrystalDiskInfo to inspect supported drive telemetry separately.
+    </p>
     $(To-HtmlTable $storage)
-    $diskWarningSection
-    <h3>Storage Reliability</h3>
-    $(To-HtmlTable $reliability)
-    $reliabilitySuspectNote
     <h3>Storage Free Space</h3>
     $(To-HtmlTable $volumes)
 </div>
@@ -2799,9 +2731,12 @@ document.addEventListener("DOMContentLoaded", function () {
 <div class="card">
     <h2>System Errors - Last 30 Days</h2>
     <div class="summary $(if ($eventWarning) { 'warning' } else { 'ok' })">
-        Critical: $criticalCount &nbsp;|&nbsp; Total Errors: $errorCount
-        $(if ($eventWarning) { "<span class='flag'> &middot; worth investigating</span>" })
+        Critical: $criticalCount &nbsp;|&nbsp; Total Error/Critical Events: $errorCount &nbsp;|&nbsp; Distinct Patterns: $($eventGroups.Count)
+        $(if ($eventWarning) { "<span class='flag'> &middot; review details</span>" })
     </div>
+    <p class="muted small" style="margin-top:0;">
+        Category counts may overlap because one event can match more than one category. Repeated records are grouped by provider, event ID and level in the detailed summary near the bottom. Event logs are clues, not proof of a failed component.
+    </p>
 
     <div class="grid-2">
         <div>
@@ -2809,20 +2744,19 @@ document.addEventListener("DOMContentLoaded", function () {
             <p class="small muted" style="margin-top:0;">
                 Can indicate instability involving CPU, memory, PCIe, or another hardware component.
             </p>
-            <div class="warningbox">$($wheaErrors.Count) hardware-related events found.</div>
+            <div class="$(if ($wheaErrors.Count -gt 0) { 'warningbox' } else { 'summary' })">$($wheaErrors.Count) WHEA/HAL event(s) found.</div>
         </div>
         <div>
             <h3>Disk / Storage Errors</h3>
             <p class="small muted" style="margin-top:0;">Storage-related Windows errors.</p>
-            <div class="warningbox">$($diskErrors.Count) storage-related events found.</div>
+            <div class="$(if ($diskErrors.Count -gt 0) { 'warningbox' } else { 'summary' })">$($diskErrors.Count) storage-related event(s) found.</div>
         </div>
     </div>
 
     <h3>Graphics / Driver Errors</h3>
     <div class="summary">$($driverErrors.Count) graphics/display-related events found.</div>
 
-    <h3>Recent Critical Events</h3>
-    $criticalBlocks
+    <p class="muted small" style="margin-bottom:0;">For specific event IDs, sample messages, occurrence counts and recent timestamps, see <strong>Detailed System Error Summary</strong> near the bottom of this report.</p>
 </div>
 
 <!-- STARTUP -->
@@ -2850,9 +2784,9 @@ document.addEventListener("DOMContentLoaded", function () {
         third-party tools yourself.
     </p>
     <ul>
-        <li><strong>CrystalDiskInfo</strong> &mdash; reads full SMART data, drive temperature,
-            and a vendor health percentage for your storage drives. More detailed than what this
-            report's built-in Storage Reliability section can retrieve.</li>
+        <li><strong>CrystalDiskInfo</strong> &mdash; can read supported SMART data, drive temperature,
+            and vendor-reported health information. This report intentionally does not assess SSD/HDD
+            SMART health or remaining life; verify the exact drive and review its telemetry manually.</li>
         <li><strong>CrystalDiskMark</strong> &mdash; benchmarks actual sequential and random
             read/write speed of a drive, so you can confirm it performs at the speed expected
             for its type (e.g. NVMe vs SATA SSD vs HDD).</li>
@@ -2902,12 +2836,25 @@ document.addEventListener("DOMContentLoaded", function () {
     <ul>
         <li>This tool does not perform CPU/GPU stress testing.</li>
         <li>This tool does not perform synthetic performance benchmarks.</li>
-        <li>Storage reliability counters are not available on every drive.</li>
+        <li>This report does not assess storage SMART health, SSD wear percentage, or remaining drive life.</li>
         <li>Windows Event Viewer errors do not automatically prove hardware failure.</li>
         <li>GPU VRAM is read from driver/registry data; if unavailable it is reported as Unknown rather than estimated.</li>
         <li>Suitability scores are estimates, not guarantees of application performance.</li>
         <li>Physical inspection is still required for a used-PC purchase.</li>
     </ul>
+</div>
+
+<!-- DETAILED EVENT SUMMARY -->
+
+<div class="card">
+    <h2>Detailed System Error Summary</h2>
+    <p class="muted small" style="margin-top:0;">
+        Last 30 days. Events are grouped by provider, event ID and severity to reduce repeated noise. Each group shows the occurrence count, latest timestamp and a sample message; expand it to see up to the five most recent occurrences. One event can still have multiple possible causes, so investigate the message and surrounding circumstances before concluding that hardware has failed.
+    </p>
+    <div class="summary">
+        $($eventGroups.Count) distinct event pattern(s) &middot; $errorCount total Critical/Error event record(s)
+    </div>
+    $eventSummaryHtml
 </div>
 
 <!-- COLLECTION WARNINGS -->
@@ -2917,7 +2864,7 @@ document.addEventListener("DOMContentLoaded", function () {
 <!-- FOOTER -->
 
 <div class="footer">
-    PC Check v2.1 &middot;
+    PC Check v2.2 &middot;
     <a href="https://github.com/Hans930v/pc-check" target="_blank">github.com/Hans930v/pc-check</a>
     &middot; MIT License
     <br>
