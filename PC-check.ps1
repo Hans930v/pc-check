@@ -883,14 +883,15 @@ try {
         catch {}
     }
 
+    
     $bios = @(
         [PSCustomObject]@{
             Manufacturer = Get-SafeValue $biosObj.Manufacturer
             Version      = Get-SafeValue $biosObj.SMBIOSBIOSVersion
             ReleaseDate  = $biosReleaseDate
-            SerialNumber = Get-SafeValue $biosObj.SerialNumber
         }
     )
+
 }
 catch {
     [void]$collectionWarnings.Add("BIOS information could not be retrieved.")
@@ -1052,14 +1053,14 @@ Write-Check "Collecting network adapter information..."
 
 try {
 
+    
     $netAdapters = @(
         Get-NetAdapter -ErrorAction Stop |
         Select-Object `
             Name,
             InterfaceDescription,
             Status,
-            LinkSpeed,
-            MacAddress
+            LinkSpeed
     )
 }
 catch {
@@ -2497,16 +2498,28 @@ summary {
     margin-bottom: 10px;
     font-size: 13.5px;
     list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-summary::-webkit-details-marker { display: none; }
-
-summary:before {
-    content: "▸ ";
+summary::-webkit-details-marker {
+    display: none;
 }
 
-details[open] summary:before {
-    content: "▾ ";
+summary::before {
+    content: "";
+    width: 0;
+    height: 0;
+    flex-shrink: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid currentColor;
+    transition: transform 0.15s ease;
+}
+
+details[open] > summary::before {
+    transform: rotate(90deg);
 }
 
 /* ---------- MISC LISTS ---------- */
@@ -2637,43 +2650,44 @@ document.addEventListener("DOMContentLoaded", function () {
     $(To-HtmlTable $usageScores)
 </div>
 
-<!-- SYSTEM -->
+<!-- SYSTEM OVERVIEW -->
 
-<div class="grid-2">
-    <div class="card">
-        <h2>System Overview</h2>
-        $(To-HtmlTable $sysInfo)
-        <div class="summary" style="margin-top:14px;">
-            System Uptime: $(ConvertTo-HtmlSafe $uptimeStr)
-        </div>
-    </div>
-    <div class="card">
-        <h2>CPU</h2>
-        $(To-HtmlTable $cpu)
+<div class="card">
+    <h2>System Overview</h2>
+    $(To-HtmlTable $sysInfo)
+    <div class="summary" style="margin-top:14px;">
+        System Uptime: $(ConvertTo-HtmlSafe $uptimeStr)
     </div>
 </div>
 
-<!-- RAM + GPU -->
+<!-- CPU -->
 
-<div class="grid-2">
-    <div class="card">
-        <h2>RAM</h2>
-        <div class="summary">
-            Total RAM: $(ConvertTo-HtmlSafe $totalRamStr) &middot; $ramSlotCount physical module(s)
-        </div>
-        $(To-HtmlTable $ram)
-    </div>
+<div class="card">
+    <h2>CPU</h2>
+    $(To-HtmlTable $cpu)
+</div>
 
-    <div class="card">
-        <h2>GPU &amp; Display</h2>
-        <div class="summary">
-            Maximum reported GPU memory on one adapter: $(ConvertTo-HtmlSafe $totalVramStr)
-        </div>
-        <h3>Video Controllers</h3>
-        $(To-HtmlTable $gpu)
-        <h3>Active Video Controllers / Displays</h3>
-        $(To-HtmlTable $displays)
+<!-- RAM -->
+
+<div class="card">
+    <h2>RAM</h2>
+    <div class="summary">
+        Total RAM: $(ConvertTo-HtmlSafe $totalRamStr) &middot; $ramSlotCount physical module(s)
     </div>
+    $(To-HtmlTable $ram)
+</div>
+
+<!-- GPU + DISPLAY -->
+
+<div class="card">
+    <h2>GPU &amp; Display</h2>
+    <div class="summary">
+        Maximum reported GPU memory on one adapter: $(ConvertTo-HtmlSafe $totalVramStr)
+    </div>
+    <h3>Video Controllers</h3>
+    $(To-HtmlTable $gpu)
+    <h3>Active Video Controllers / Displays</h3>
+    $(To-HtmlTable $displays)
 </div>
 
 <!-- STORAGE -->
