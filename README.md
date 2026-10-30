@@ -1,6 +1,10 @@
 # PC Check
 
-A portable Windows diagnostic tool for evaluating a PC or laptop **before you buy it secondhand**. The main tool is a single PowerShell script that generates a self-contained HTML report with a buyer verdict, hardware condition and capability scores, usage-suitability estimates, and the data behind those results. An optional batch launcher is also provided for users who want to view and temporarily manage the PowerShell execution policy before running the script.
+A portable Windows PC diagnostic and reporting tool designed to help evaluate **used Windows PCs before purchase**.
+
+PC Check brings together built-in Windows PowerShell commands and system interfaces, automating the collection of hardware, battery, storage, security, and system-event information. Instead of manually running multiple commands and reviewing their outputs individually, users can run one script and receive a self-contained HTML report.
+
+The report organizes the collected information into hardware condition and capability scores, usage-suitability estimates, a buyer verdict, and detailed system information.
 
 <table>
 <tr>
@@ -60,7 +64,7 @@ The report also includes a **manual inspection checklist** covering the screen, 
 
 PC Check generates the HTML report locally. It does not upload diagnostic reports to an external server.
 
-Diagnostic reports may contain identifying information, including BIOS serial numbers, network MAC addresses, startup command lines, file locations, and Windows event messages.
+The generated report includes certain identifying information, such as BIOS serial numbers and network MAC addresses. Other information, including startup command lines, file locations, and Windows event messages, may also contain personal details.
 
 Review the generated report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
 
