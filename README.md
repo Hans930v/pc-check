@@ -1,10 +1,8 @@
 # PC Check
 
-A portable Windows PC diagnostic and reporting tool designed to help evaluate **used Windows PCs before purchase**.
+A portable Windows PC diagnostic and reporting tool for buyers and sellers evaluating **used Windows PCs before purchase**.
 
-PC Check brings together built-in Windows PowerShell commands and system interfaces, automating the collection of hardware, battery, storage, security, and system-event information. Instead of manually running multiple commands and reviewing their outputs individually, users can run one script and receive a self-contained HTML report.
-
-The report organizes the collected information into hardware condition and capability scores, usage-suitability estimates, a buyer verdict, and detailed system information.
+PC Check automates built-in Windows PowerShell commands and system interfaces to collect hardware, battery, storage, security, and system-event information. Run one script and get a self-contained HTML report with condition and capability scores, usage-suitability estimates, a buyer verdict, and detailed system information.
 
 <table>
 <tr>
@@ -12,62 +10,17 @@ The report organizes the collected information into hardware condition and capab
 </tr>
 </table>
 
-## Why
+> **Scores are estimates, not benchmarks, and a clean report is not a guarantee.** See [Limitations](#limitations).
 
-Buying a used laptop or desktop usually means trusting the seller's word about its battery, hardware, Windows installation, and whether recurring system errors are present. PC Check collects information exposed by Windows and presents it in one report that a buyer or seller can review and share.
+## Contents
 
-**The PowerShell script is designed to be read-only with respect to hardware configuration and personal files.** It queries built-in Windows interfaces and commands such as `Get-CimInstance`, `powercfg`, `Get-PhysicalDisk`, `Get-Volume`, and `Get-WinEvent`, then formats the results as HTML. It creates the report and temporary battery-report files, then attempts to remove those temporary files after reading them. **The report is not uploaded anywhere.**
-
-The optional `run-pc-check.bat` launcher is different: it temporarily changes the **CurrentUser** PowerShell execution policy to `Bypass`, runs PC Check, and attempts to restore the original CurrentUser policy afterward. It does not intentionally change the other policy scopes. See [Using the batch launcher](#option-2-use-the-batch-launcher) and [Execution-policy notes](#execution-policy-notes) before using it.
-
-## What the report tells you
-
-- **Buyer Verdict:** one of *Good Candidate*, *Review Report*, *Caution*, *Investigate Before Buying*, or *Limited Capability*, with a short explanation. It is an automated screening result, not a purchase guarantee.
-- **Hardware Condition (0-100):** a heuristic based on repeated WHEA/HAL events, battery health below 70% of design capacity, and recurring graphics/display-driver error events. Generic Critical System events and old Windows update history are reported for review, but are not automatically treated as proof of hardware damage or directly deducted as hardware-condition penalties. Storage SMART health is not assessed.
-- **Hardware Capability (0-100):** a rough estimate based on detected RAM capacity, CPU core count, the largest reported VRAM value on a single GPU adapter, and whether storage appears to be HDD-only. Missing CPU, RAM, GPU-memory, or storage data is treated as unknown rather than automatically receiving a hardware deduction.
-- **Overall score:** Hardware Condition (60%) and Hardware Capability (40%) combined.
-- **Usage suitability:** estimates for everyday use, business/office, programming, video editing, gaming, engineering/CAD, and local AI/ML.
-- **Things to Investigate:** a short list of detected findings, with severity labels.
-- **Confidence ratings:** each main score includes an indication of how much supporting data was available.
-- **System Errors - Last 30 Days:** counts of Critical and Error-level System events, with category counts for WHEA/HAL, disk/storage, and graphics/display-driver events.
-- **Detailed System Error Summary:** a bottom-of-report breakdown that groups repeated events by provider, event ID, and level. Each group shows its occurrence count, latest timestamp, sample message, and up to five recent occurrences when expanded.
-- **Data Collection Warnings:** identifies information Windows could not provide during the scan.
-
-> **Scores are estimates, not benchmarks.** The capability and suitability estimates use hardware-specification tiers and simple rules; they do not measure actual application performance. CPU/GPU generation and architecture, cooling, power limits, drivers, configuration, and workload can make two systems with similar headline specifications perform very differently. No CPU/GPU stress tests or synthetic performance benchmarks are run.
-
-## What it collects
-
-| Area | Details |
-|---|---|
-| **System** | Manufacturer, model, operating system, version, build, original install date, and uptime |
-| **CPU** | Model, manufacturer, physical cores, logical processors/threads, and reported maximum clock |
-| **RAM** | Per-module bank/slot, manufacturer, part number, capacity, speed, and total capacity |
-| **Storage devices** | Drive name, device ID, media type, bus type, operational status, and capacity |
-| **Free space** | Per-volume drive letter, filesystem, free space, and total volume size |
-| **GPU / VRAM** | Per-adapter name, manufacturer, driver version/date, video processor, and VRAM when exposed by the driver |
-| **Display** | Active display resolution and refresh rate reported by Windows |
-| **Battery** | Design capacity versus current full-charge capacity, plus the embedded Windows battery report when available |
-| **Windows activation** | Windows activation/expiration status reported by `slmgr.vbs /xpr` |
-| **BIOS** | Manufacturer, version, release date, and serial number |
-| **Windows Update** | The five most recent hotfix entries available through `Get-HotFix`; the report flags the newest installed date when it is over 90 days old |
-| **Startup programs** | Startup command name, command line, and location; the report flags more than 15 entries as a possible heavy startup load |
-| **Security** | Microsoft Defender real-time protection, antivirus status, signature age, last quick/full scan, and TPM presence/readiness/version |
-| **Network** | Adapter name, interface description, status, link speed, and MAC address |
-| **Event Viewer** | Critical and Error-level events from the Windows **System** log for the last 30 days; category counts for WHEA/HAL, disk/storage, and graphics/display-driver provider matches; grouped event patterns and sample messages |
-
-**Storage-health distinction:** PC Check inventories storage devices and volume capacity, but it does **not** read or score SSD/HDD SMART health, wear percentage, temperature, power-on hours, or remaining drive life. Windows does not expose consistent drive-health telemetry across all drive/controller combinations. Use a dedicated utility such as CrystalDiskInfo to inspect supported SMART data.
-
-The report also includes a **manual inspection checklist** covering the screen, hinges, keyboard, touchpad, ports, audio, webcam, wireless connectivity, fans, chassis condition, battery behavior, Office licensing, and Windows edition. It recommends CrystalDiskInfo, CrystalDiskMark, and MemTest86 for additional checks.
-
-
-## Privacy
-
-PC Check generates the HTML report locally. It does not upload diagnostic reports to an external server.
-
-The generated report includes certain identifying information, such as BIOS serial numbers and network MAC addresses. Other information, including startup command lines, file locations, and Windows event messages, may also contain personal details.
-
-Review the generated report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
-
+- [Requirements](#requirements)
+- [How to run it](#how-to-run-it)
+- [Where the report is saved](#where-the-report-is-saved)
+- [What the report tells you](#what-the-report-tells-you)
+- [Safety and privacy](#safety-and-privacy)
+- [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
 
 ## Requirements
 
@@ -77,47 +30,21 @@ Review the generated report before sharing it. Avoid publishing complete diagnos
 
 ## How to run it
 
-### Option 1: Download and run the PowerShell script (recommended)
+> Want to check the script first? See [Inspect the script before running](#inspect-the-script-before-running).
+
+### Option 1: Download and run the script (recommended)
 
 1. Download [`PC-check.ps1`](PC-check.ps1).
 2. Right-click the file and select **Run with PowerShell**.
 
    <img src="https://github.com/user-attachments/assets/a1670aaa-6db4-4cf6-85bf-a87fbf54d97b" alt="Right-click menu showing Run with PowerShell" width="350">
 
-3. Accept the UAC prompt. If the first PowerShell window closes, that is expected: once the script has started, it can launch a new elevated PowerShell process with a **process-only** execution-policy bypass.
+3. Accept the UAC prompt. If the first PowerShell window closes, that is expected: the script launches a new elevated PowerShell process with a **process-only** execution-policy bypass.
 4. Let the elevated window finish collecting information. Press **Enter** when prompted. The HTML report opens in your browser.
 
-If Windows blocks the script before it starts because of the current execution policy, use the explicit command shown under [Troubleshooting](#troubleshooting) or use the batch launcher.
+This is the simplest method and does not intentionally change the saved CurrentUser execution-policy setting. If Windows blocks the script before it starts, see [Troubleshooting](#troubleshooting).
 
-This is the simplest method and does not intentionally change the saved CurrentUser execution-policy setting. You can also read the `.ps1` file before running it.
-
-### Option 2: Use the batch launcher
-
-The optional [`run-pc-check.bat`](run-pc-check.bat) launcher:
-
-1. Displays the current PowerShell execution policies for all scopes.
-2. Saves the existing **CurrentUser** execution policy.
-3. Temporarily sets **CurrentUser** to `Bypass`.
-4. Runs `PC-check.ps1` from the same folder as the batch file.
-5. Attempts to restore the original CurrentUser policy and displays the policy list again for verification.
-
-**Run the batch file from an already elevated Command Prompt or Windows Terminal** if you want it to wait for PC Check to finish before restoring the policy. The PowerShell script can self-elevate by launching a separate process when started without administrator rights; in that situation, the batch parent process may finish and restore the policy before the elevated child process has completed. Running the batch launcher from an elevated terminal avoids that hand-off.
-
-To use it:
-
-1. Keep `run-pc-check.bat` and `PC-check.ps1` in the same folder.
-2. Open **Command Prompt (Admin)** or **Windows Terminal (Admin)**.
-3. Change directory to the folder containing the two files, then run:
-
-   ```bat
-   run-pc-check.bat
-   ```
-
-4. Review the policy list and messages. When PC Check finishes, the launcher attempts to restore the original CurrentUser policy and displays the resulting policies.
-
-The batch file includes pauses so you can read its output. If policy restoration fails, it displays the original setting so you can restore it manually.
-
-### Option 3: One-liner (no local script download)
+### Option 2: One-liner (no local script download)
 
 1. Right-click the Start menu and select **Terminal (Admin)** or **Windows PowerShell (Admin)**. The one-liner cannot elevate itself, so the terminal must already be running as administrator.
 
@@ -135,29 +62,193 @@ The batch file includes pauses so you can read its output. If policy restoration
 
 > **Security tip:** Piping a remote script into `iex` executes it immediately. To inspect the code first, open the raw URL in a browser or use Option 1.
 
+### Option 3: Batch launcher (optional)
+
+<details>
+<summary>Show batch launcher details</summary>
+
+The optional [`run-pc-check.bat`](run-pc-check.bat) launcher:
+
+1. Displays the current PowerShell execution policies for all scopes.
+2. Saves the existing **CurrentUser** execution policy.
+3. Temporarily sets **CurrentUser** to `Bypass`.
+4. Runs `PC-check.ps1` from the same folder as the batch file.
+5. Attempts to restore the original CurrentUser policy and displays the policy list again for verification.
+
+It does not intentionally modify other policy scopes. If it is interrupted, or if restoration fails, the policy may remain changed.
+
+**Run it from an already elevated Command Prompt or Windows Terminal.** If PC Check is started without administrator rights, the script self-elevates by launching a separate process. The batch parent process may then finish and restore the policy before the elevated child process has completed. Running from an elevated terminal avoids that hand-off.
+
+To use it:
+
+1. Keep `run-pc-check.bat` and `PC-check.ps1` in the same folder.
+2. Open **Command Prompt (Admin)** or **Windows Terminal (Admin)**.
+3. Change directory to the folder containing the two files, then run:
+
+   ```bat
+   run-pc-check.bat
+   ```
+
+4. Review the policy list and messages. When PC Check finishes, the launcher attempts to restore the original CurrentUser policy and displays the resulting policies.
+
+The batch file includes pauses so you can read its output. If restoration fails, it displays the original setting so you can restore it manually (see [Troubleshooting](#troubleshooting)).
+
+</details>
+
 ## Where the report is saved
 
 | Method | Location |
 |---|---|
-| Script file (Option 1) | A `PC-Diagnose` folder next to `PC-check.ps1`. If the script is already inside a folder named `PC-Diagnose`, that folder is used. This also works from a USB drive. |
-| Batch launcher (Option 2) | The same `PC-Diagnose` folder next to `PC-check.ps1`, because the batch file launches the script from its own location. |
-| One-liner (Option 3) | Your Desktop |
+| Script file (Option 1) | A `PC-Diagnose` folder next to `PC-check.ps1`. If the script is already inside a folder named `PC-Diagnose`, that folder is used. Also works from a USB drive. |
+| One-liner (Option 2) | Your Desktop |
+| Batch launcher (Option 3) | The same `PC-Diagnose` folder next to `PC-check.ps1` |
 
 If the output folder cannot be created, the script falls back to the Desktop. Files are named using the computer manufacturer, model, and timestamp, for example:
 
 `Dell Inc. Inspiron 5402 PC Check 2026-08-15_14-30-00.html`
 
+## What the report tells you
+
+| Section | What it shows |
+|---|---|
+| **Buyer Verdict** | One of *Good Candidate*, *Review Report*, *Caution*, *Investigate Before Buying*, or *Limited Capability*, with a short explanation. An automated screening result, not a purchase guarantee. |
+| **Hardware Condition (0-100)** | Heuristic based on repeated WHEA/HAL events, battery health below 70% of design capacity, and recurring graphics/display-driver error events. Generic Critical System events and old Windows update history are reported for review but not deducted as hardware penalties. |
+| **Hardware Capability (0-100)** | Rough estimate from detected RAM capacity, CPU core count, the largest reported VRAM on a single GPU adapter, and whether storage appears to be HDD-only. Missing data is treated as unknown rather than penalized. |
+| **Overall score** | Hardware Condition (60%) and Hardware Capability (40%) combined. |
+| **Usage suitability** | Estimates for everyday use, business/office, programming, video editing, gaming, engineering/CAD, and local AI/ML. |
+| **Things to Investigate** | Short list of detected findings, with severity labels. |
+| **Confidence ratings** | How much supporting data was available for each main score. |
+| **System Errors (last 30 days)** | Counts of Critical and Error-level System events, with category counts for WHEA/HAL, disk/storage, and graphics/display-driver events. |
+| **Detailed System Error Summary** | Repeated events grouped by provider, event ID, and level, with occurrence count, latest timestamp, sample message, and up to five recent occurrences when expanded. |
+| **Data Collection Warnings** | Information Windows could not provide during the scan. |
+
+The report also includes a **manual inspection checklist** (screen, hinges, keyboard, touchpad, ports, audio, webcam, wireless, fans, chassis condition, battery behavior, Office licensing, Windows edition) and recommends CrystalDiskInfo, CrystalDiskMark, and MemTest86 for additional checks.
+
+<details>
+<summary>Full list of what PC Check collects</summary>
+
+| Area | Details |
+|---|---|
+| **System** | Manufacturer, model, operating system, version, build, original install date, and uptime |
+| **CPU** | Model, manufacturer, physical cores, logical processors/threads, and reported maximum clock |
+| **RAM** | Per-module bank/slot, manufacturer, part number, capacity, speed, and total capacity |
+| **Storage devices** | Drive name, device ID, media type, bus type, operational status, and capacity |
+| **Free space** | Per-volume drive letter, filesystem, free space, and total volume size |
+| **GPU / VRAM** | Per-adapter name, manufacturer, driver version/date, video processor, and VRAM when exposed by the driver |
+| **Display** | Active display resolution and refresh rate reported by Windows |
+| **Battery** | Design capacity versus current full-charge capacity, plus the embedded Windows battery report when available |
+| **Windows activation** | Activation/expiration status reported by `slmgr.vbs /xpr` |
+| **BIOS** | Manufacturer, version, release date, and serial number |
+| **Windows Update** | The five most recent hotfix entries from `Get-HotFix`; flags the newest installed date when it is over 90 days old |
+| **Startup programs** | Startup command name, command line, and location; flags more than 15 entries as a possible heavy startup load |
+| **Security** | Microsoft Defender real-time protection, antivirus status, signature age, last quick/full scan, and TPM presence/readiness/version |
+| **Network** | Adapter name, interface description, status, link speed, and MAC address |
+| **Event Viewer** | Critical and Error-level events from the Windows **System** log for the last 30 days; category counts for WHEA/HAL, disk/storage, and graphics/display-driver provider matches; grouped event patterns and sample messages |
+
+</details>
+
+## Safety and privacy
+
+### What the script does
+
+The PowerShell script is designed to be **read-only with respect to hardware configuration and personal files**. It queries built-in Windows interfaces and commands such as `Get-CimInstance`, `powercfg`, `Get-PhysicalDisk`, `Get-Volume`, and `Get-WinEvent`, then formats the results as HTML. It creates the report and temporary battery-report files, then attempts to remove the temporary files after reading them.
+
+**The report is not uploaded anywhere.** It is generated locally and does not go to an external server.
+
+### Privacy of the report
+
+The generated report includes certain identifying information, such as BIOS serial numbers and network MAC addresses. Other information, including startup command lines, file locations, and Windows event messages, may also contain personal details.
+
+Review the report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
+
+### Inspect the script before running
+
+This is an optional preliminary check for commands commonly associated with downloading or executing external code, modifying Windows settings, or creating scheduled tasks. It does not replace reading and understanding the script.
+
+1. Put `PC-check.ps1` in a folder, such as `C:\Users\YourName\Downloads`.
+2. Open PowerShell in that folder: either type `powershell` in the File Explorer address bar and press Enter, or run:
+
+   ```powershell
+   cd "C:\Users\YourName\Downloads"
+   ```
+
+   Administrator privileges are not required, because this only reads the file.
+
+3. Confirm the script is present:
+
+   ```powershell
+   dir PC-check.ps1
+   ```
+
+4. Run the following search, pasted as a single line:
+
+   ```powershell
+   Select-String -Path .\PC-check.ps1 -Pattern 'Invoke-WebRequest|Invoke-RestMethod|\birm\b|\biwr\b|WebClient|Start-BitsTransfer|Invoke-Expression|\biex\b|EncodedCommand|FromBase64String|Add-MpPreference|Set-MpPreference|ScheduledTask|Set-ItemProperty|reg(\.exe)?\s+add|Net\.Sockets|Start-Process|New-Object\s+Net|Set-ExecutionPolicy'
+   ```
+
+**Reading the results**
+
+- **No output:** none of the searched patterns were found.
+- **Matching lines:** each result shows the filename, line number, and line text. Read the surrounding code to understand why it matched.
+
+A match does not automatically mean something is malicious. `Start-Process` is expected because the script uses it for self-elevation, and some matches may be in comments or text rather than executable code.
+
+**This is only a basic text-based screening step.** Obfuscated or dynamically constructed commands may not match these patterns. **No output does not guarantee that a script is safe.**
+
+**Optional: SHA-256 hash**
+
+```powershell
+Get-FileHash .\PC-check.ps1 -Algorithm SHA256
+```
+
+A hash is useful for verifying that a file matches a trusted copy when you already have a trusted checksum for the same version. Calculating a hash by itself does not establish that the script is safe or authentic.
+
+## Limitations
+
+**About the scores**
+
+- **Scores are estimates, not benchmarks.** Capability and suitability estimates use hardware-specification tiers and simple thresholds. They do not measure application performance, and they do not validate CAD performance, gaming FPS, AI framework compatibility, or sustained performance under load.
+- CPU/GPU generation and architecture, cooling, power limits, drivers, configuration, and workload can make two systems with similar headline specifications perform very differently.
+- **No stress tests or synthetic benchmarks are run.**
+
+**About what is (and is not) checked**
+
+- **Storage health is not assessed.** PC Check inventories storage devices and volume capacity, but does not read or score SMART health, SSD/HDD wear percentage, temperature, power-on hours, or remaining drive life. Windows does not expose consistent drive-health telemetry across all drive/controller combinations. Check each drive with CrystalDiskInfo (or the manufacturer's diagnostic utility) before buying; SMART availability and interpretation vary by drive and controller.
+- **VRAM** is read from driver/registry data and may show `Unknown`, especially for integrated graphics or unsupported drivers. Logic uses the largest reported VRAM on one adapter; it does not assume VRAM from multiple GPUs forms a single pool.
+- **Event Viewer errors do not prove hardware failure.** Events are grouped by provider, event ID, and level to make recurring patterns easier to inspect. Category counts can overlap, and a single event can have several possible causes.
+- **Battery checks** apply only when Windows exposes battery information. A report may be unavailable on desktops or unsupported systems.
+- **A clean report is not a guarantee.** The tool does not perform stress testing or physical inspection and cannot reliably detect screen defects, damaged hinges, worn ports, liquid damage, fan noise, or every intermittent fault. Use the manual checklist and inspect the machine in person.
+- **Data collection can be incomplete.** Results vary with hardware, drivers, Windows version, permissions, and controller support. Missing values are reported as unknown where possible; check the Data Collection Warnings section.
+
+**About execution policy**
+
+- The `.ps1` script uses a process-scoped bypass when it relaunches itself.
+- The optional batch launcher temporarily changes the CurrentUser policy and attempts to restore it. If the batch file is interrupted, Windows shuts down unexpectedly, or restoration fails, verify the CurrentUser policy and restore the original value printed by the launcher.
+
 ## Troubleshooting
 
-**A PowerShell window flashes and disappears.** When the script is launched as a file without administrator rights, it starts an elevated PowerShell process and exits the initial process. Accept the UAC prompt and look for the new elevated window. If it still fails, open PowerShell and run:
+<details>
+<summary>A PowerShell window flashes and disappears</summary>
+
+When the script is launched as a file without administrator rights, it starts an elevated PowerShell process and exits the initial process. Accept the UAC prompt and look for the new elevated window. If it still fails, open PowerShell and run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\PC-check.ps1
 ```
 
-**The one-liner says administrator rights are required.** Close the window and reopen PowerShell or Windows Terminal with **Run as administrator**, then paste the command again.
+</details>
 
-**The batch launcher reports that policy restoration failed.** Use the original CurrentUser policy printed by the batch file and restore that exact value from an elevated PowerShell window. For example, if the original value was `RemoteSigned`:
+<details>
+<summary>The one-liner says administrator rights are required</summary>
+
+Close the window and reopen PowerShell or Windows Terminal with **Run as administrator**, then paste the command again.
+
+</details>
+
+<details>
+<summary>The batch launcher reports that policy restoration failed</summary>
+
+Use the original CurrentUser policy printed by the batch file and restore that exact value from an elevated PowerShell window. For example, if the original value was `RemoteSigned`:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
@@ -165,16 +256,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
 If the original value was `Undefined`, use `Undefined` in place of `RemoteSigned`. A `MachinePolicy` or `UserPolicy` set by an organization can take precedence over CurrentUser and cannot be overridden by this launcher.
 
-## Limitations
-
-- **Storage health is not assessed.** PC Check does not read SMART health, SSD wear percentage, drive temperature, power-on hours, or remaining drive life. Check each drive with CrystalDiskInfo (or the drive manufacturer's own diagnostic utility) before buying. SMART information availability and interpretation can vary by drive and controller.
-- **VRAM** is read from driver/registry data and may show `Unknown`, especially for integrated graphics or unsupported drivers. The capability and suitability logic uses the largest reported VRAM value on one adapter; it does not assume VRAM from multiple GPUs can be combined into one shared pool.
-- **Event Viewer errors do not prove hardware failure.** Events are grouped by provider, event ID, and level to make recurring patterns easier to inspect. Category counts can overlap, and a single event can have several possible causes.
-- **Battery checks** apply only when Windows exposes battery information. A battery report may be unavailable on desktops or unsupported systems.
-- **Capability and suitability scores** are estimates based on detected specifications and simple thresholds, not application benchmarks. They do not validate CAD performance, gaming FPS, AI framework compatibility, or sustained performance under load.
-- **A clean report is not a guarantee.** The tool does not perform stress testing or physical inspection and cannot reliably detect screen defects, damaged hinges, worn ports, liquid damage, fan noise, or every intermittent fault. Use the manual checklist and inspect the machine in person.
-- **Data collection can be incomplete.** Some Windows commands return different information depending on hardware, drivers, Windows version, permissions, and controller support. Missing values are reported as unknown where possible; check the Data Collection Warnings section.
-- **Execution-policy note:** the `.ps1` script uses a process-scoped bypass when it relaunches itself. The optional batch launcher temporarily changes the CurrentUser policy and attempts to restore it. If the batch file is interrupted, Windows shuts down unexpectedly, or restoration fails, verify the CurrentUser policy and restore the original value printed by the launcher.
+</details>
 
 ## Full disclosure
 
