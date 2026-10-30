@@ -1,26 +1,46 @@
 # PC Check
 
-A portable Windows PC diagnostic and reporting tool for buyers and sellers evaluating **used Windows PCs before purchase**.
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6" alt="Platform: Windows 10 and 11">
+  <img src="https://img.shields.io/badge/PowerShell-5.1%2B-5391FE" alt="PowerShell 5.1 or newer">
+  <img src="https://img.shields.io/badge/Portable-Yes-7C3AED" alt="Portable">
+  <img src="https://img.shields.io/github/license/Hans930v/pc-check?color=2EA44F" alt="MIT License">
+</p>
 
-PC Check automates built-in Windows PowerShell commands and system interfaces to collect hardware, battery, storage, security, and system-event information. Run one script and get a self-contained HTML report with condition and capability scores, usage-suitability estimates, a buyer verdict, and detailed system information.
+<p align="center">
+  <strong>A portable Windows PC diagnostic and reporting tool for buyers and sellers evaluating used Windows PCs.</strong>
+</p>
 
-<table>
-<tr>
-<td><img width="1917" height="918" alt="image" src="https://github.com/user-attachments/assets/5c6237c5-7832-415a-8b0d-f3c883a29668" /></td>
-</tr>
-</table>
+PC Check automates built-in Windows PowerShell commands and system interfaces to collect hardware, battery, storage, security, and system-event information.
 
+Run one script and get a self-contained HTML report with condition and capability scores, usage-suitability estimates, a buyer verdict, and detailed system information.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/5c6237c5-7832-415a-8b0d-f3c883a29668" alt="PC Check HTML report preview" width="100%">
+</p>
+
+> [!IMPORTANT]
 > **Scores are estimates, not benchmarks, and a clean report is not a guarantee.** See [Limitations](#limitations).
+
+---
 
 ## Contents
 
 - [Requirements](#requirements)
+- [Safety and privacy](#safety-and-privacy)
+  - [What the script does](#what-the-script-does)
+  - [Privacy of the report](#privacy-of-the-report)
+  - [Inspect the script before running](#inspect-the-script-before-running)
 - [How to run it](#how-to-run-it)
 - [Where the report is saved](#where-the-report-is-saved)
 - [What the report tells you](#what-the-report-tells-you)
-- [Safety and privacy](#safety-and-privacy)
 - [Limitations](#limitations)
 - [Troubleshooting](#troubleshooting)
+- [Full disclosure](#full-disclosure)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Requirements
 
@@ -28,9 +48,74 @@ PC Check automates built-in Windows PowerShell commands and system interfaces to
 - Windows PowerShell 5.1 or newer (included with Windows)
 - Administrator privileges are recommended for the fullest set of checks. When launched as a `.ps1` file, the script requests elevation through UAC and relaunches itself with a process-scoped execution-policy bypass. The one-liner method must be run from an already elevated PowerShell/Terminal window.
 
+## Safety and privacy
+
+### What the script does
+
+The PowerShell script is designed to be **read-only with respect to hardware configuration and personal files**. It queries built-in Windows interfaces and commands such as `Get-CimInstance`, `powercfg`, `Get-PhysicalDisk`, `Get-Volume`, and `Get-WinEvent`, then formats the results as HTML. It creates the report and temporary battery-report files, then attempts to remove the temporary files after reading them.
+
+> [!IMPORTANT]
+> **The report is not uploaded anywhere.** It is generated locally and is not sent to an external server.
+
+### Privacy of the report
+
+The generated report includes certain identifying information, such as BIOS serial numbers and network MAC addresses. Other information, including startup command lines, file locations, and Windows event messages, may also contain personal details.
+
+Review the report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
+
+> [!WARNING]
+> A diagnostic report can expose information about the computer and its user. Review it before sending it to someone else.
+
+### Inspect the script before running
+
+You can perform a basic text search for commands commonly associated with downloading or executing external code, modifying Windows settings, or creating scheduled tasks. This does not replace reading and understanding the script.
+
+1. Put `PC-check.ps1` in a folder, such as `C:\Users\YourName\Downloads`.
+2. Open PowerShell in that folder. Either type `powershell` in the File Explorer address bar and press Enter, or open PowerShell manually and run:
+
+   ```powershell
+   cd "C:\Users\YourName\Downloads"
+   ```
+
+   Administrator privileges are not required because this check only reads the file.
+
+3. Confirm the script is present:
+
+   ```powershell
+   dir PC-check.ps1
+   ```
+
+4. Run the following search as a single line:
+
+   ```powershell
+   Select-String -Path .\PC-check.ps1 -Pattern 'Invoke-WebRequest|Invoke-RestMethod|\birm\b|\biwr\b|WebClient|Start-BitsTransfer|Invoke-Expression|\biex\b|EncodedCommand|FromBase64String|Add-MpPreference|Set-MpPreference|ScheduledTask|Set-ItemProperty|reg(\.exe)?\s+add|Net\.Sockets|Start-Process|New-Object\s+Net|Set-ExecutionPolicy'
+   ```
+
+**Reading the results**
+
+- **No output:** None of the searched patterns were found.
+- **Matching lines:** Each result shows the filename, line number, and matching line. Read the surrounding code to understand why it matched.
+
+A match does not automatically mean something is malicious. `Start-Process` is expected because the script uses it for self-elevation, and some matches may appear in comments or text rather than executable code.
+
+> [!NOTE]
+> This is only a basic text-based screening step. Obfuscated or dynamically constructed commands may not match these patterns. **No output does not guarantee that a script is safe.**
+
+**Verifying a downloaded copy**
+
+A SHA-256 checksum can help confirm that a downloaded file matches a specific published version. When a checksum file is provided with a PC Check release, compare its expected hash with the result of:
+
+```powershell
+Get-FileHash .\PC-check.ps1 -Algorithm SHA256
+```
+
+A matching hash confirms that the file matches the published checksum. It does not prove that the script is safe. Make sure the checksum belongs to the exact release you downloaded.
+
+---
+
 ## How to run it
 
-> Want to check the script first? See [Inspect the script before running](#inspect-the-script-before-running).
+Haven't inspected the script yet? See [Inspect the script before running](#inspect-the-script-before-running) above.
 
 ### Option 1: Download and run the script (recommended)
 
@@ -60,7 +145,8 @@ This is the simplest method and does not intentionally change the saved CurrentU
 
    <img src="https://github.com/user-attachments/assets/273a09c5-4519-41ac-8945-35fb3d7a1d65" alt="One-liner running in an admin PowerShell terminal" width="800">
 
-> **Security tip:** Piping a remote script into `iex` executes it immediately. To inspect the code first, open the raw URL in a browser or use Option 1.
+> [!CAUTION]
+> Piping a remote script into `iex` executes it immediately. To inspect the code first, open the raw URL in a browser or use Option 1.
 
 ### Option 3: Batch launcher (optional)
 
@@ -95,6 +181,8 @@ The batch file includes pauses so you can read its output. If restoration fails,
 
 </details>
 
+---
+
 ## Where the report is saved
 
 | Method | Location |
@@ -107,11 +195,29 @@ If the output folder cannot be created, the script falls back to the Desktop. Fi
 
 `Dell Inc. Inspiron 5402 PC Check 2026-08-15_14-30-00.html`
 
+---
+
 ## What the report tells you
+
+### Buyer verdicts
+
+The report assigns one of five verdicts:
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Good%20Candidate-2EA44F?style=for-the-badge" alt="Good Candidate">
+  <img src="https://img.shields.io/badge/Review%20Report-0078D4?style=for-the-badge" alt="Review Report">
+  <img src="https://img.shields.io/badge/Caution-E5A000?style=for-the-badge" alt="Caution">
+  <img src="https://img.shields.io/badge/Investigate%20Before%20Buying-E67E22?style=for-the-badge" alt="Investigate Before Buying">
+  <img src="https://img.shields.io/badge/Limited%20Capability-D73A49?style=for-the-badge" alt="Limited Capability">
+</p>
+
+These are automated screening results, not purchase guarantees.
+
+### Report sections
 
 | Section | What it shows |
 |---|---|
-| **Buyer Verdict** | One of *Good Candidate*, *Review Report*, *Caution*, *Investigate Before Buying*, or *Limited Capability*, with a short explanation. An automated screening result, not a purchase guarantee. |
+| **Buyer Verdict** | One of the five verdicts above, with a short explanation. |
 | **Hardware Condition (0-100)** | Heuristic based on repeated WHEA/HAL events, battery health below 70% of design capacity, and recurring graphics/display-driver error events. Generic Critical System events and old Windows update history are reported for review but not deducted as hardware penalties. |
 | **Hardware Capability (0-100)** | Rough estimate from detected RAM capacity, CPU core count, the largest reported VRAM on a single GPU adapter, and whether storage appears to be HDD-only. Missing data is treated as unknown rather than penalized. |
 | **Overall score** | Hardware Condition (60%) and Hardware Capability (40%) combined. |
@@ -147,71 +253,17 @@ The report also includes a **manual inspection checklist** (screen, hinges, keyb
 
 </details>
 
-## Safety and privacy
-
-### What the script does
-
-The PowerShell script is designed to be **read-only with respect to hardware configuration and personal files**. It queries built-in Windows interfaces and commands such as `Get-CimInstance`, `powercfg`, `Get-PhysicalDisk`, `Get-Volume`, and `Get-WinEvent`, then formats the results as HTML. It creates the report and temporary battery-report files, then attempts to remove the temporary files after reading them.
-
-**The report is not uploaded anywhere.** It is generated locally and does not go to an external server.
-
-### Privacy of the report
-
-The generated report includes certain identifying information, such as BIOS serial numbers and network MAC addresses. Other information, including startup command lines, file locations, and Windows event messages, may also contain personal details.
-
-Review the report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
-
-### Inspect the script before running
-
-This is an optional preliminary check for commands commonly associated with downloading or executing external code, modifying Windows settings, or creating scheduled tasks. It does not replace reading and understanding the script.
-
-1. Put `PC-check.ps1` in a folder, such as `C:\Users\YourName\Downloads`.
-2. Open PowerShell in that folder: either type `powershell` in the File Explorer address bar and press Enter, or run:
-
-   ```powershell
-   cd "C:\Users\YourName\Downloads"
-   ```
-
-   Administrator privileges are not required, because this only reads the file.
-
-3. Confirm the script is present:
-
-   ```powershell
-   dir PC-check.ps1
-   ```
-
-4. Run the following search, pasted as a single line:
-
-   ```powershell
-   Select-String -Path .\PC-check.ps1 -Pattern 'Invoke-WebRequest|Invoke-RestMethod|\birm\b|\biwr\b|WebClient|Start-BitsTransfer|Invoke-Expression|\biex\b|EncodedCommand|FromBase64String|Add-MpPreference|Set-MpPreference|ScheduledTask|Set-ItemProperty|reg(\.exe)?\s+add|Net\.Sockets|Start-Process|New-Object\s+Net|Set-ExecutionPolicy'
-   ```
-
-**Reading the results**
-
-- **No output:** none of the searched patterns were found.
-- **Matching lines:** each result shows the filename, line number, and line text. Read the surrounding code to understand why it matched.
-
-A match does not automatically mean something is malicious. `Start-Process` is expected because the script uses it for self-elevation, and some matches may be in comments or text rather than executable code.
-
-**This is only a basic text-based screening step.** Obfuscated or dynamically constructed commands may not match these patterns. **No output does not guarantee that a script is safe.**
-
-**Optional: SHA-256 hash**
-
-```powershell
-Get-FileHash .\PC-check.ps1 -Algorithm SHA256
-```
-
-A hash is useful for verifying that a file matches a trusted copy when you already have a trusted checksum for the same version. Calculating a hash by itself does not establish that the script is safe or authentic.
+---
 
 ## Limitations
 
-**About the scores**
+### About the scores
 
 - **Scores are estimates, not benchmarks.** Capability and suitability estimates use hardware-specification tiers and simple thresholds. They do not measure application performance, and they do not validate CAD performance, gaming FPS, AI framework compatibility, or sustained performance under load.
 - CPU/GPU generation and architecture, cooling, power limits, drivers, configuration, and workload can make two systems with similar headline specifications perform very differently.
 - **No stress tests or synthetic benchmarks are run.**
 
-**About what is (and is not) checked**
+### About what is (and is not) checked
 
 - **Storage health is not assessed.** PC Check inventories storage devices and volume capacity, but does not read or score SMART health, SSD/HDD wear percentage, temperature, power-on hours, or remaining drive life. Windows does not expose consistent drive-health telemetry across all drive/controller combinations. Check each drive with CrystalDiskInfo (or the manufacturer's diagnostic utility) before buying; SMART availability and interpretation vary by drive and controller.
 - **VRAM** is read from driver/registry data and may show `Unknown`, especially for integrated graphics or unsupported drivers. Logic uses the largest reported VRAM on one adapter; it does not assume VRAM from multiple GPUs forms a single pool.
@@ -220,10 +272,12 @@ A hash is useful for verifying that a file matches a trusted copy when you alrea
 - **A clean report is not a guarantee.** The tool does not perform stress testing or physical inspection and cannot reliably detect screen defects, damaged hinges, worn ports, liquid damage, fan noise, or every intermittent fault. Use the manual checklist and inspect the machine in person.
 - **Data collection can be incomplete.** Results vary with hardware, drivers, Windows version, permissions, and controller support. Missing values are reported as unknown where possible; check the Data Collection Warnings section.
 
-**About execution policy**
+### About execution policy
 
 - The `.ps1` script uses a process-scoped bypass when it relaunches itself.
 - The optional batch launcher temporarily changes the CurrentUser policy and attempts to restore it. If the batch file is interrupted, Windows shuts down unexpectedly, or restoration fails, verify the CurrentUser policy and restore the original value printed by the launcher.
+
+---
 
 ## Troubleshooting
 
@@ -257,6 +311,8 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 If the original value was `Undefined`, use `Undefined` in place of `RemoteSigned`. A `MachinePolicy` or `UserPolicy` set by an organization can take precedence over CurrentUser and cannot be overridden by this launcher.
 
 </details>
+
+---
 
 ## Full disclosure
 
