@@ -55,6 +55,16 @@ The optional `run-pc-check.bat` launcher is different: it temporarily changes th
 
 The report also includes a **manual inspection checklist** covering the screen, hinges, keyboard, touchpad, ports, audio, webcam, wireless connectivity, fans, chassis condition, battery behavior, Office licensing, and Windows edition. It recommends CrystalDiskInfo, CrystalDiskMark, and MemTest86 for additional checks.
 
+
+## Privacy
+
+PC Check generates the HTML report locally. It does not upload diagnostic reports to an external server.
+
+Diagnostic reports may contain identifying information, including BIOS serial numbers, network MAC addresses, startup command lines, file locations, and Windows event messages.
+
+Review the generated report before sharing it. Avoid publishing complete diagnostic reports in public repositories or forums.
+
+
 ## Requirements
 
 - Windows 10 or Windows 11
